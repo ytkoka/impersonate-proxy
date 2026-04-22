@@ -33,13 +33,37 @@ curl / browser / Playwright
 
 ## Prerequisites
 
-- **macOS** (tested on macOS 15 / Apple Silicon; Linux should work too)
+- **macOS** or **Linux** (amd64 / arm64)
 - **Go 1.22+**
 
+### macOS
+
 ```bash
-# Install Go via Homebrew if needed
 brew install go
 ```
+
+### Linux
+
+The distro-packaged Go is often outdated. Install the official binary directly:
+
+```bash
+# Download and extract (replace 1.22.5 with the latest from https://go.dev/dl/)
+curl -OL https://go.dev/dl/go1.22.5.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz
+
+# Add to PATH (add this line to ~/.bashrc or ~/.zshrc to make it permanent)
+export PATH=$PATH:/usr/local/go/bin
+```
+
+Verify:
+
+```bash
+go version
+# go version go1.22.5 linux/amd64
+```
+
+> **ARM64 (Raspberry Pi, AWS Graviton, etc.):** replace `linux-amd64` with `linux-arm64` in the download URL.
 
 ## Setup
 
@@ -70,6 +94,17 @@ Clients need to trust your MITM CA so they don't reject the proxy-generated leaf
 **macOS system keychain** (affects all apps):
 ```bash
 make trust-ca        # runs: sudo security add-trusted-cert ...
+```
+
+**Linux system trust** (affects all apps; requires ca-certificates package):
+```bash
+# Debian / Ubuntu
+sudo cp ca.crt /usr/local/share/ca-certificates/impersonate-proxy.crt
+sudo update-ca-certificates
+
+# RHEL / Fedora / Amazon Linux
+sudo cp ca.crt /etc/pki/ca-trust/source/anchors/impersonate-proxy.crt
+sudo update-ca-trust
 ```
 
 **curl only** (no system-wide change):
