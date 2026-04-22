@@ -39,6 +39,11 @@ func (s *Server) ListenAndServe() error {
 		return err
 	}
 	log.Printf("listening on %s  preset=%s", s.cfg.Listen, s.cfg.TLS.Preset)
+	if host, _, err := net.SplitHostPort(s.cfg.Listen); err == nil {
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() {
+			log.Printf("WARNING: proxy is listening on a non-loopback address (%s) with no authentication — ensure firewall rules restrict access", host)
+		}
+	}
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
