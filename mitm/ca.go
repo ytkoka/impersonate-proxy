@@ -139,7 +139,12 @@ func (ca *CA) CertForHost(host string) (*tls.Certificate, error) {
 }
 
 func savePEM(path, typ string, data []byte) error {
-	f, err := os.Create(path)
+	// Use 0600 for private keys, 0644 for certificates.
+	perm := os.FileMode(0644)
+	if typ == "EC PRIVATE KEY" || typ == "RSA PRIVATE KEY" {
+		perm = 0600
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}

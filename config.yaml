@@ -4,12 +4,11 @@ ca_key:  "ca.key"
 
 tls:
   # chrome / firefox / safari / edge / ios / random / golang
-  preset: "firefox"
+  preset: "chrome"
 
 http:
   # User-Agentを上書き（空文字にすると元のままを使用）
-  #user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-  user_agent: "test"
+  user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # ヘッダーの送信順序（リストにないヘッダーは後ろに追加）
   header_order:
