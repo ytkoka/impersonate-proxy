@@ -1,6 +1,7 @@
 package mitm
 
 import (
+	"container/list"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -16,11 +17,62 @@ import (
 	"time"
 )
 
+// certCacheSize is the maximum number of leaf certificates held in memory.
+// Least-recently-used entries are evicted when this limit is reached.
+const certCacheSize = 256
+
+// certCache is a fixed-capacity LRU cache for leaf TLS certificates.
+// It uses a doubly-linked list to track access order and a map for O(1) lookup.
+type certCache struct {
+	cap   int
+	items map[string]*list.Element
+	ll    *list.List
+}
+
+type certEntry struct {
+	host string
+	cert *tls.Certificate
+}
+
+func newCertCache(cap int) *certCache {
+	return &certCache{
+		cap:   cap,
+		items: make(map[string]*list.Element),
+		ll:    list.New(),
+	}
+}
+
+func (c *certCache) get(host string) (*tls.Certificate, bool) {
+	el, ok := c.items[host]
+	if !ok {
+		return nil, false
+	}
+	c.ll.MoveToFront(el)
+	return el.Value.(*certEntry).cert, true
+}
+
+func (c *certCache) set(host string, cert *tls.Certificate) {
+	if el, ok := c.items[host]; ok {
+		c.ll.MoveToFront(el)
+		el.Value.(*certEntry).cert = cert
+		return
+	}
+	if c.ll.Len() >= c.cap {
+		back := c.ll.Back()
+		if back != nil {
+			c.ll.Remove(back)
+			delete(c.items, back.Value.(*certEntry).host)
+		}
+	}
+	el := c.ll.PushFront(&certEntry{host: host, cert: cert})
+	c.items[host] = el
+}
+
 type CA struct {
 	cert  *x509.Certificate
 	key   *ecdsa.PrivateKey
 	mu    sync.Mutex
-	cache map[string]*tls.Certificate
+	cache *certCache
 }
 
 func LoadOrCreateCA(certPath, keyPath string) (*CA, error) {
@@ -44,7 +96,7 @@ func loadCA(certPEM, keyPEM []byte) (*CA, error) {
 	return &CA{
 		cert:  cert,
 		key:   pair.PrivateKey.(*ecdsa.PrivateKey),
-		cache: make(map[string]*tls.Certificate),
+		cache: newCertCache(certCacheSize),
 	}, nil
 }
 
@@ -85,15 +137,15 @@ func generateCA(certPath, keyPath string) (*CA, error) {
 		return nil, err
 	}
 	log.Printf("generated CA certificate → %s (add to OS trust store to avoid cert errors)", certPath)
-	return &CA{cert: cert, key: key, cache: make(map[string]*tls.Certificate)}, nil
+	return &CA{cert: cert, key: key, cache: newCertCache(certCacheSize)}, nil
 }
 
-// CertForHost returns (cached) leaf certificate signed by the CA.
+// CertForHost returns a leaf certificate for host, generating and caching one if needed.
 func (ca *CA) CertForHost(host string) (*tls.Certificate, error) {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
-	if c, ok := ca.cache[host]; ok {
+	if c, ok := ca.cache.get(host); ok {
 		return c, nil
 	}
 
@@ -134,7 +186,7 @@ func (ca *CA) CertForHost(host string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	ca.cache[host] = &tlsCert
+	ca.cache.set(host, &tlsCert)
 	return &tlsCert, nil
 }
 
