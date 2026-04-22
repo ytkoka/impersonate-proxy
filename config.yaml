@@ -1,0 +1,54 @@
+listen: "127.0.0.1:8080"
+ca_cert: "ca.crt"
+ca_key:  "ca.key"
+
+tls:
+  # chrome / firefox / safari / edge / ios / random / golang
+  preset: "firefox"
+
+http:
+  # User-Agentを上書き（空文字にすると元のままを使用）
+  #user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+  user_agent: "test"
+
+  # ヘッダーの送信順序（リストにないヘッダーは後ろに追加）
+  header_order:
+    - "Host"
+    - "User-Agent"
+    - "Accept"
+    - "Accept-Language"
+    - "Accept-Encoding"
+    - "Connection"
+
+  # ヘッダーを追加・上書き
+  add_headers:
+    Accept-Language: "ja,en-US;q=0.9,en;q=0.8"
+
+  # ヘッダーを削除
+  remove_headers: []
+
+http2:
+  enabled: true
+
+  # SETTINGS frame entries (order matters for the HTTP/2 fingerprint)
+  # id: 1=HEADER_TABLE_SIZE 2=ENABLE_PUSH 3=MAX_CONCURRENT_STREAMS
+  #     4=INITIAL_WINDOW_SIZE 5=MAX_FRAME_SIZE 6=MAX_HEADER_LIST_SIZE
+  #
+  # Chrome: 1:65536,2:0,4:6291456,6:262144
+  # Firefox: 1:65536,4:131072,5:16384
+  # Safari:  1:4096,3:100,4:2097152,6:16384
+  settings:
+    - { id: 1, val: 65536 }
+    - { id: 2, val: 0 }
+    - { id: 4, val: 6291456 }
+    - { id: 6, val: 262144 }
+
+  # Connection-level WINDOW_UPDATE increment (Chrome=15663105, Firefox=12517377)
+  window_update: 15663105
+
+  # Pseudo-header order in HEADERS frame (method/authority/scheme/path)
+  pseudo_header_order:
+    - method
+    - authority
+    - scheme
+    - path
