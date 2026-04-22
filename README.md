@@ -46,7 +46,7 @@ brew install go
 ### 1. Clone and build
 
 ```bash
-git clone https://github.com/<you>/impersonate-proxy.git
+git clone https://github.com/ytkoka/impersonate-proxy.git
 cd impersonate-proxy
 make build
 ```
