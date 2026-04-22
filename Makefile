@@ -1,4 +1,4 @@
-GO := /opt/homebrew/bin/go
+GO := $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
 .PHONY: build run clean trust-ca
 
