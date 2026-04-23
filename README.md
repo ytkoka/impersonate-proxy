@@ -15,7 +15,7 @@ curl / browser / Playwright
 ┌─────────────────────────────────────────┐
 │            impersonate-proxy            │
 │                                         │
-│  MITM TLS ◄──────────────► uTLS        │
+│  MITM TLS ◄──────────────► uTLS         │
 │  (our CA cert)          (custom JA3/4)  │
 │                                         │
 │  Header rewriter (UA, order, add/del)   │
