@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,25 +28,30 @@ const clientPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 // It is not safe for concurrent RoundTrip calls; the proxy serialises requests
 // per upstream connection via its own loop.
 type Conn struct {
-	raw    net.Conn
-	fr     *http2.Framer
-	enc    *hpack.Encoder
-	dec    *hpack.Decoder
-	encBuf bytes.Buffer
-	cfg    config.HTTP2Config
-	nextID uint32 // next client-initiated stream ID (odd, starting at 1)
-	mu     sync.Mutex
+	raw         net.Conn
+	fr          *http2.Framer
+	enc         *hpack.Encoder
+	dec         *hpack.Decoder
+	encBuf      bytes.Buffer
+	cfg         config.HTTP2Config
+	headerOrder []string // regular header emission order (from HTTP config)
+	nextID      uint32   // next client-initiated stream ID (odd, starting at 1)
+	mu          sync.Mutex
 }
 
 // Dial performs the HTTP/2 connection setup over raw:
 //  1. Sends the client connection preface (magic + custom SETTINGS + WINDOW_UPDATE)
 //  2. Reads and acknowledges the server's SETTINGS
-func Dial(raw net.Conn, cfg config.HTTP2Config) (*Conn, error) {
+//
+// headerOrder controls the emission order of regular (non-pseudo) headers,
+// matching the HTTP/1.1 header_order setting so both protocols behave identically.
+func Dial(raw net.Conn, cfg config.HTTP2Config, headerOrder []string) (*Conn, error) {
 	c := &Conn{
-		raw:    raw,
-		fr:     http2.NewFramer(raw, raw),
-		cfg:    cfg,
-		nextID: 1,
+		raw:         raw,
+		fr:          http2.NewFramer(raw, raw),
+		cfg:         cfg,
+		headerOrder: headerOrder,
+		nextID:      1,
 	}
 	c.enc = hpack.NewEncoder(&c.encBuf)
 	c.dec = hpack.NewDecoder(65536, nil)
@@ -154,15 +160,35 @@ func (c *Conn) writeHeaders(req *http.Request, sid uint32) error {
 	}
 
 	hasBody := req.Body != nil && req.Body != http.NoBody
-	for k, vs := range req.Header {
-		if isHopByHop(k) {
+
+	// Emit regular headers in configured order first.
+	written := make(map[string]bool, len(c.headerOrder))
+	for _, name := range c.headerOrder {
+		canonical := http.CanonicalHeaderKey(name)
+		if isHopByHop(canonical) {
+			continue
+		}
+		vs := req.Header[canonical]
+		if len(vs) == 0 {
 			continue
 		}
 		for _, v := range vs {
-			c.enc.WriteField(hpack.HeaderField{
-				Name:  strings.ToLower(k),
-				Value: v,
-			})
+			c.enc.WriteField(hpack.HeaderField{Name: strings.ToLower(canonical), Value: v})
+		}
+		written[canonical] = true
+	}
+
+	// Append remaining headers in sorted order for determinism.
+	rest := make([]string, 0, len(req.Header))
+	for k := range req.Header {
+		if !written[k] && !isHopByHop(k) {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	for _, k := range rest {
+		for _, v := range req.Header[k] {
+			c.enc.WriteField(hpack.HeaderField{Name: strings.ToLower(k), Value: v})
 		}
 	}
 
@@ -224,7 +250,7 @@ func (c *Conn) readResponse(req *http.Request, sid uint32) (*http.Response, erro
 					resp.StatusCode = code
 					resp.Status = hf.Value + " " + http.StatusText(code)
 				} else {
-					resp.Header.Add(http.CanonicalHeaderKey(hf.Name), hf.Value)
+					resp.Header.Add(hf.Name, hf.Value)
 				}
 			}
 			headersOK = true

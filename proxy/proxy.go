@@ -117,7 +117,7 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request) {
 // tunnelH2 forwards HTTP requests over an HTTP/2 connection with the configured
 // SETTINGS, WINDOW_UPDATE, and pseudo-header order.
 func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string) {
-	h2conn, err := h2fp.Dial(serverConn, s.cfg.HTTP2)
+	h2conn, err := h2fp.Dial(serverConn, s.cfg.HTTP2, s.rewriter.Order())
 	if err != nil {
 		log.Printf("h2 dial(%s): %v", host, err)
 		return
