@@ -1,0 +1,243 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: #1a1a1a;
+  background: #fff;
+  width: 320px;
+}
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  background: #1e293b;
+  color: #fff;
+}
+
+.logo {
+  width: 22px;
+  height: 22px;
+}
+
+.title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* ── Sections ── */
+.section {
+  padding: 12px 14px;
+}
+
+.divider {
+  height: 1px;
+  background: #e2e8f0;
+}
+
+/* ── Proxy toggle ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #1e293b;
+}
+
+/* ── Form fields ── */
+.field {
+  margin-bottom: 10px;
+}
+
+.field:last-of-type {
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 4px;
+}
+
+.hint {
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+select,
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  transition: border-color 0.15s, background 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2394a3b8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+
+select:focus,
+input[type="text"]:focus,
+textarea:focus {
+  border-color: #3b82f6;
+  background: #fff;
+}
+
+textarea {
+  resize: none;
+  line-height: 1.5;
+}
+
+/* ── Apply button ── */
+button {
+  width: 100%;
+  padding: 8px;
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+button:hover  { background: #2563eb; }
+button:active { background: #1d4ed8; }
+
+button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.apply-msg {
+  height: 16px;
+  margin-top: 6px;
+  font-size: 11px;
+  text-align: center;
+  color: #64748b;
+  transition: color 0.2s;
+}
+
+.apply-msg.success { color: #16a34a; }
+.apply-msg.error   { color: #dc2626; }
+
+/* ── Toggle switch ── */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  background: #cbd5e1;
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+
+.slider::before {
+  content: '';
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+input:checked + .slider             { background: #3b82f6; }
+input:checked + .slider::before     { transform: translateX(20px); }
+
+/* ── Footer ── */
+.footer {
+  padding: 10px 14px;
+  background: #f8fafc;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-connected    { background: #16a34a; }
+.dot-disconnected { background: #dc2626; }
+.dot-unknown      { background: #cbd5e1; }
+
+#statusText {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.addr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.addr-row label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+}
+
+.addr-row input {
+  font-size: 11px;
+  padding: 4px 6px;
+}

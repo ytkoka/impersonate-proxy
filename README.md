@@ -2,7 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A local MITM proxy that lets you control TLS fingerprints (JA3/JA4), HTTP/2 fingerprints, HTTP header order, and User-Agent — all from a single YAML config file.
+A local MITM proxy that lets you control TLS fingerprints (JA3/JA4), HTTP/2 fingerprints, HTTP header order, User-Agent, and source IP headers — all from a single YAML config file.
+
+A **Chrome extension** is included for toggling the proxy and switching fingerprint profiles directly from the browser toolbar without restarting the proxy.
 
 Intended for **authorized security testing** of WAF bot-detection systems. Route curl, browsers, or Playwright through the proxy to observe how different fingerprint combinations are classified.
 
@@ -127,6 +129,7 @@ Edit `config.yaml` before starting the proxy. All fields have defaults — you o
 
 ```yaml
 listen: "127.0.0.1:8080"
+mgmt_listen: "127.0.0.1:8081"  # management API used by the Chrome extension (empty to disable)
 ca_cert: "ca.crt"
 ca_key:  "ca.key"
 
@@ -179,6 +182,27 @@ http2:
   pseudo_header_order: [method, authority, scheme, path]
 ```
 
+### Management API
+
+When the proxy starts it also exposes a lightweight HTTP API on `mgmt_listen` (default `127.0.0.1:8081`). The Chrome extension uses this to read and update settings at runtime without restarting the proxy. You can also call it directly with curl:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/config` | `GET` | Return active settings as JSON |
+| `/api/config` | `POST` | Update TLS preset, client IP, and User-Agent |
+
+```bash
+# Read current settings
+curl http://127.0.0.1:8081/api/config
+
+# Switch to Firefox fingerprint and set a spoofed IP
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1","user_agent":""}'
+```
+
+Changes take effect immediately for new connections. Set `mgmt_listen: ""` to disable the API entirely.
+
 ### Browser fingerprint reference
 
 | Browser | TLS preset | HTTP/2 SETTINGS | WINDOW_UPDATE |
@@ -207,6 +231,29 @@ curl --proxy http://127.0.0.1:8080 https://tls.peet.ws/api/all
 # Without system trust — pass CA explicitly:
 curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 ```
+
+### Chrome extension
+
+The `chrome-extension/` directory contains a Manifest V3 extension that controls the proxy from the browser toolbar.
+
+**Installation:**
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (toggle in the top-right corner)
+3. Click **Load unpacked** and select the `chrome-extension/` folder
+
+**Controls:**
+
+| Control | What it does |
+|---|---|
+| Proxy toggle | Enables / disables Chrome's proxy setting (routes traffic through `:8080`) |
+| TLS Preset | Switches the uTLS fingerprint preset (chrome / firefox / safari / edge / ios) |
+| Client IP | Sets `X-Forwarded-For` and `True-Client-IP` on every request |
+| User-Agent | Overrides the HTTP `User-Agent` header |
+| Apply button | POSTs the new settings to the management API; takes effect immediately |
+| API field | Address of the management API (default `http://127.0.0.1:8081`) |
+
+> **User-Agent scope:** The extension changes the HTTP `User-Agent` **header** only. JavaScript's `navigator.userAgent` is controlled by Chrome itself and is not affected. To spoof both simultaneously, launch Chrome with `--user-agent="..."` alongside the proxy settings.
 
 ### Playwright (Node.js)
 
@@ -261,14 +308,21 @@ Key fields to check:
 
 ```
 impersonate-proxy/
-├── main.go               # Entry point
-├── config/config.go      # YAML config struct and defaults
-├── fp/dialer.go          # uTLS dialer — TLS fingerprint presets
-├── h2fp/conn.go          # HTTP/2 framer — SETTINGS / WINDOW_UPDATE / pseudo-header control
-├── mitm/ca.go            # MITM CA: generate, cache, and serve leaf certs
-├── proxy/proxy.go        # Proxy server: CONNECT handling, protocol branch
-├── rewrite/headers.go    # HTTP header rewriting (UA, order, add/remove)
-├── config.yaml           # Default configuration
+├── main.go                   # Entry point
+├── config/config.go          # YAML config struct and defaults
+├── fp/dialer.go              # uTLS dialer — TLS fingerprint presets
+├── h2fp/conn.go              # HTTP/2 framer — SETTINGS / WINDOW_UPDATE / pseudo-header control
+├── mitm/ca.go                # MITM CA: generate, cache, and serve leaf certs
+├── proxy/proxy.go            # Proxy server: CONNECT handling, protocol branch, runtime config
+├── rewrite/headers.go        # HTTP header rewriting (UA, order, add/remove, IP spoof)
+├── mgmt/server.go            # Management HTTP API (/api/config GET + POST)
+├── chrome-extension/
+│   ├── manifest.json         # Manifest V3
+│   ├── popup.html            # Toolbar popup UI
+│   ├── popup.css
+│   ├── popup.js              # Proxy toggle + management API client
+│   └── icon.svg
+├── config.yaml               # Default configuration
 └── Makefile
 ```
 
@@ -301,6 +355,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **No HTTP/2 from client**: The client→proxy leg uses HTTP/1.1 (via CONNECT). Only the proxy→server leg uses HTTP/2 with custom fingerprints.
 - **Chunked request bodies**: Requests with `Transfer-Encoding: chunked` bodies are not currently supported.
 - **No QUIC / HTTP/3**: Out of scope.
+- **User-Agent (HTTP header only)**: The proxy rewrites the `User-Agent` HTTP header, but JavaScript's `navigator.userAgent` is set by the browser independently and is unaffected. Use Chrome's `--user-agent` launch flag to override both simultaneously.
 
 ## Legal notice
 

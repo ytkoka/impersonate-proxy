@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="icon.svg" class="logo" alt="">
+    <span class="title">Impersonate Proxy</span>
+  </div>
+
+  <div class="section">
+    <div class="toggle-row">
+      <span class="toggle-label">Route through proxy</span>
+      <label class="switch">
+        <input type="checkbox" id="proxyToggle">
+        <span class="slider"></span>
+      </label>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section">
+    <div class="field">
+      <label for="tlsPreset">TLS Preset</label>
+      <select id="tlsPreset">
+        <option value="chrome">Chrome</option>
+        <option value="firefox">Firefox</option>
+        <option value="safari">Safari</option>
+        <option value="edge">Edge</option>
+        <option value="ios">iOS</option>
+        <option value="random">Random</option>
+        <option value="golang">Golang</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="clientIP">
+        Client IP
+        <span class="hint">X-Forwarded-For / True-Client-IP</span>
+      </label>
+      <input type="text" id="clientIP" placeholder="e.g. 203.0.113.1  (empty = disabled)" spellcheck="false" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label for="userAgent">User-Agent <span class="hint">empty = pass through</span></label>
+      <textarea id="userAgent" rows="2" placeholder="Mozilla/5.0 …" spellcheck="false"></textarea>
+    </div>
+
+    <button id="applyBtn">Apply</button>
+    <div id="applyMsg" class="apply-msg"></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="footer">
+    <div class="status-row">
+      <span id="statusDot" class="dot dot-unknown"></span>
+      <span id="statusText">Checking…</span>
+    </div>
+    <div class="addr-row">
+      <label for="mgmtAddr">API</label>
+      <input type="text" id="mgmtAddr" placeholder="http://127.0.0.1:8081" spellcheck="false" autocomplete="off">
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"impersonate-proxy/config"
 	"impersonate-proxy/fp"
@@ -20,6 +21,7 @@ import (
 type Server struct {
 	cfg      *config.Config
 	ca       *mitm.CA
+	mu       sync.RWMutex
 	dialer   *fp.Dialer
 	rewriter *rewrite.Rewriter
 }
@@ -31,6 +33,55 @@ func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer) *Server {
 		dialer:   dialer,
 		rewriter: rewrite.New(cfg.HTTP),
 	}
+}
+
+// connDeps is a snapshot of the mutable per-connection dependencies taken at
+// connection start so that mid-flight config updates don't affect in-progress requests.
+type connDeps struct {
+	dialer   *fp.Dialer
+	rewriter *rewrite.Rewriter
+	h2cfg    config.HTTP2Config
+	preset   string
+}
+
+func (s *Server) snap() connDeps {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return connDeps{
+		dialer:   s.dialer,
+		rewriter: s.rewriter,
+		h2cfg:    s.cfg.HTTP2,
+		preset:   s.cfg.TLS.Preset,
+	}
+}
+
+// GetActiveConfig returns the currently active mutable settings.
+func (s *Server) GetActiveConfig() config.ActiveConfig {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return config.ActiveConfig{
+		TLSPreset: s.cfg.TLS.Preset,
+		ClientIP:  s.cfg.HTTP.ClientIP,
+		UserAgent: s.cfg.HTTP.UserAgent,
+		Listen:    s.cfg.Listen,
+	}
+}
+
+// Update atomically replaces the TLS dialer and HTTP rewriter with new settings.
+// New connections pick up the change immediately; in-flight connections are unaffected.
+func (s *Server) Update(preset, clientIP, userAgent string) error {
+	d, err := fp.NewDialer(preset)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.TLS.Preset = preset
+	s.cfg.HTTP.ClientIP = clientIP
+	s.cfg.HTTP.UserAgent = userAgent
+	s.dialer = d
+	s.rewriter = rewrite.New(s.cfg.HTTP)
+	return nil
 }
 
 func (s *Server) ListenAndServe() error {
@@ -58,15 +109,16 @@ func (s *Server) ListenAndServe() error {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	deps := s.snap()
 	br := bufio.NewReader(conn)
 	req, err := http.ReadRequest(br)
 	if err != nil {
 		return
 	}
 	if req.Method == http.MethodConnect {
-		s.handleConnect(conn, req)
+		s.handleConnect(conn, req, deps)
 	} else {
-		s.handleHTTP(conn, req)
+		s.handleHTTP(conn, req, deps)
 	}
 }
 
@@ -76,7 +128,7 @@ func (s *Server) handle(conn net.Conn) {
 //   - Protocol branch: when the server negotiates h2 and HTTP2.Enabled is true,
 //     use the h2fp transport to send custom SETTINGS/WINDOW_UPDATE/pseudo-headers.
 //     Otherwise fall back to HTTP/1.1 request forwarding.
-func (s *Server) handleConnect(clientConn net.Conn, req *http.Request) {
+func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps connDeps) {
 	host, port, err := net.SplitHostPort(req.Host)
 	if err != nil {
 		host = req.Host
@@ -91,7 +143,7 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request) {
 		return
 	}
 
-	serverConn, err := s.dialer.Dial(host, addr)
+	serverConn, err := deps.dialer.Dial(host, addr)
 	if err != nil {
 		log.Printf("dial(%s): %v", addr, err)
 		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
@@ -108,19 +160,19 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request) {
 	}
 	defer clientTLS.Close()
 
-	log.Printf("CONNECT %s  proto=%s preset=%s", addr, serverConn.Proto, s.cfg.TLS.Preset)
+	log.Printf("CONNECT %s  proto=%s preset=%s", addr, serverConn.Proto, deps.preset)
 
-	if serverConn.Proto == "h2" && s.cfg.HTTP2.Enabled {
-		s.tunnelH2(clientTLS, serverConn, host)
+	if serverConn.Proto == "h2" && deps.h2cfg.Enabled {
+		s.tunnelH2(clientTLS, serverConn, host, deps)
 	} else {
-		s.tunnelH1(clientTLS, serverConn)
+		s.tunnelH1(clientTLS, serverConn, deps)
 	}
 }
 
 // tunnelH2 forwards HTTP requests over an HTTP/2 connection with the configured
 // SETTINGS, WINDOW_UPDATE, and pseudo-header order.
-func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string) {
-	h2conn, err := h2fp.Dial(serverConn, s.cfg.HTTP2, s.rewriter.Order())
+func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string, deps connDeps) {
+	h2conn, err := h2fp.Dial(serverConn, deps.h2cfg, deps.rewriter.Order())
 	if err != nil {
 		log.Printf("h2 dial(%s): %v", host, err)
 		return
@@ -132,7 +184,7 @@ func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string)
 		if err != nil {
 			return
 		}
-		s.rewriter.Apply(req)
+		deps.rewriter.Apply(req)
 
 		resp, err := h2conn.RoundTrip(req)
 		if err != nil {
@@ -152,7 +204,7 @@ func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string)
 }
 
 // tunnelH1 forwards HTTP/1.1 requests, applying header rewriting and ordering.
-func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn) {
+func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn, deps connDeps) {
 	clientBR := bufio.NewReader(clientTLS)
 	serverBR := bufio.NewReader(serverConn)
 	for {
@@ -160,9 +212,9 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn) {
 		if err != nil {
 			return
 		}
-		s.rewriter.Apply(req)
+		deps.rewriter.Apply(req)
 
-		if err := writeRequest(req, serverConn, s.rewriter.Order()); err != nil {
+		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 			return
 		}
 		resp, err := http.ReadResponse(serverBR, req)
@@ -182,7 +234,7 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn) {
 }
 
 // handleHTTP forwards a plain-HTTP proxy request.
-func (s *Server) handleHTTP(clientConn net.Conn, req *http.Request) {
+func (s *Server) handleHTTP(clientConn net.Conn, req *http.Request, deps connDeps) {
 	host := req.Host
 	if !strings.Contains(host, ":") {
 		host += ":80"
@@ -198,9 +250,9 @@ func (s *Server) handleHTTP(clientConn net.Conn, req *http.Request) {
 	for _, h := range hopByHopHeaders {
 		req.Header.Del(h)
 	}
-	s.rewriter.Apply(req)
+	deps.rewriter.Apply(req)
 
-	if err := writeRequest(req, serverConn, s.rewriter.Order()); err != nil {
+	if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 		return
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(serverConn), req)

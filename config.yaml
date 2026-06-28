@@ -1,4 +1,5 @@
 listen: "127.0.0.1:8080"
+mgmt_listen: "127.0.0.1:8081"   # management API for Chrome extension (empty to disable)
 ca_cert: "ca.crt"
 ca_key:  "ca.key"
 

@@ -6,6 +6,7 @@ import (
 
 	"impersonate-proxy/config"
 	"impersonate-proxy/fp"
+	"impersonate-proxy/mgmt"
 	"impersonate-proxy/mitm"
 	"impersonate-proxy/proxy"
 )
@@ -30,5 +31,12 @@ func main() {
 	}
 
 	srv := proxy.New(cfg, ca, dialer)
+	if cfg.MgmtListen != "" {
+		go func() {
+			if err := mgmt.ListenAndServe(cfg.MgmtListen, srv); err != nil {
+				log.Printf("management API: %v", err)
+			}
+		}()
+	}
 	log.Fatal(srv.ListenAndServe())
 }

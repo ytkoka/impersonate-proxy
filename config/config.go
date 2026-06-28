@@ -7,12 +7,21 @@ import (
 )
 
 type Config struct {
-	Listen string     `yaml:"listen"`
-	CACert string     `yaml:"ca_cert"`
-	CAKey  string     `yaml:"ca_key"`
-	TLS    TLSConfig  `yaml:"tls"`
-	HTTP   HTTPConfig `yaml:"http"`
-	HTTP2  HTTP2Config `yaml:"http2"`
+	Listen     string      `yaml:"listen"`
+	MgmtListen string      `yaml:"mgmt_listen"`
+	CACert     string      `yaml:"ca_cert"`
+	CAKey      string      `yaml:"ca_key"`
+	TLS        TLSConfig   `yaml:"tls"`
+	HTTP       HTTPConfig  `yaml:"http"`
+	HTTP2      HTTP2Config `yaml:"http2"`
+}
+
+// ActiveConfig holds the subset of Config that can be changed at runtime via the management API.
+type ActiveConfig struct {
+	TLSPreset string `json:"tls_preset"`
+	ClientIP  string `json:"client_ip"`
+	UserAgent string `json:"user_agent"`
+	Listen    string `json:"listen"`
 }
 
 type TLSConfig struct {
@@ -57,9 +66,10 @@ func Load(path string) (*Config, error) {
 
 func defaults() *Config {
 	return &Config{
-		Listen: "127.0.0.1:8080",
-		CACert: "ca.crt",
-		CAKey:  "ca.key",
+		Listen:     "127.0.0.1:8080",
+		MgmtListen: "127.0.0.1:8081",
+		CACert:     "ca.crt",
+		CAKey:      "ca.key",
 		TLS:    TLSConfig{Preset: "chrome"},
 		HTTP2: HTTP2Config{
 			Enabled: true,
