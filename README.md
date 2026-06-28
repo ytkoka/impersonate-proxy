@@ -236,6 +236,8 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 
 The `chrome-extension/` directory contains a Manifest V3 extension that controls the proxy from the browser toolbar.
 
+<img src="image/chrome-extension.png" alt="Chrome extension popup" width="280">
+
 **Installation:**
 
 1. Open `chrome://extensions` in Chrome
