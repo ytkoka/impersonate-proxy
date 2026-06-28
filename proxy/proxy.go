@@ -84,26 +84,29 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request) {
 	}
 	addr := net.JoinHostPort(host, port)
 
-	fmt.Fprintf(clientConn, "HTTP/1.1 200 Connection Established\r\n\r\n")
-
 	cert, err := s.ca.CertForHost(host)
 	if err != nil {
 		log.Printf("cert(%s): %v", host, err)
+		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		return
 	}
+
+	serverConn, err := s.dialer.Dial(host, addr)
+	if err != nil {
+		log.Printf("dial(%s): %v", addr, err)
+		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+		return
+	}
+	defer serverConn.Close()
+
+	fmt.Fprintf(clientConn, "HTTP/1.1 200 Connection Established\r\n\r\n")
+
 	clientTLS := tls.Server(clientConn, &tls.Config{Certificates: []tls.Certificate{*cert}})
 	if err := clientTLS.Handshake(); err != nil {
 		log.Printf("client handshake(%s): %v", host, err)
 		return
 	}
 	defer clientTLS.Close()
-
-	serverConn, err := s.dialer.Dial(host, addr)
-	if err != nil {
-		log.Printf("dial(%s): %v", addr, err)
-		return
-	}
-	defer serverConn.Close()
 
 	log.Printf("CONNECT %s  proto=%s preset=%s", addr, serverConn.Proto, s.cfg.TLS.Preset)
 
