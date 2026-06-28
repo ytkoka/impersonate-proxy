@@ -31,7 +31,7 @@ curl / browser / Playwright
 
 | Layer | What you can control |
 |-------|----------------------|
-| TLS | Cipher suites, extensions, their order (JA3 / JA4) via uTLS presets |
+| TLS | Cipher suites, extensions, their order (JA3 / JA4) via uTLS presets or a fully custom `custom_hello` spec |
 | HTTP/1.1 | Header order, User-Agent, add/remove any header, IP spoofing (`X-Forwarded-For` / `True-Client-IP`) |
 | HTTP/2 | SETTINGS values & order, WINDOW_UPDATE, pseudo-header order (HTTP/2 fingerprint) |
 
@@ -210,6 +210,99 @@ Changes take effect immediately for new connections. Set `mgmt_listen: ""` to di
 | Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
 | Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
 | Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+
+### Custom TLS fingerprint (`preset: "custom"`)
+
+The built-in presets (`chrome`, `firefox`, `safari`, …) cover the most common cases. When you need to match a specific browser version or a fingerprint that differs from those presets, set `preset: "custom"` and provide a `custom_hello` block.
+
+**How JA3 / JA4 map to config fields**
+
+| Fingerprint component | Config field | Notes |
+|---|---|---|
+| TLS version range | `versions` | Min/max are derived automatically |
+| Cipher suite list + order | `cipher_suites` | Use `0x0a0a` as a GREASE placeholder; uTLS randomises it per connection |
+| Extension type IDs + order | `extensions` | Order directly controls the JA3 extensions component; values matching the GREASE pattern (`0xXAXA`) are randomised per connection |
+| Supported groups (curves) | `curves` | Also controls which key shares are sent |
+
+> JA3 and JA4 are one-way hashes — you cannot reverse a hash back to a spec. Find the underlying parameters for the target browser with [tls.peet.ws](https://tls.peet.ws) or Wireshark, then paste them into `custom_hello`.
+
+**Chrome 131 example**
+
+```yaml
+tls:
+  preset: "custom"
+  custom_hello:
+    cipher_suites:      # hex IDs; 0x0a0a = GREASE placeholder (randomised per connection)
+      - 0x0a0a
+      - 0x1301          # TLS_AES_128_GCM_SHA256
+      - 0x1302          # TLS_AES_256_GCM_SHA384
+      - 0x1303          # TLS_CHACHA20_POLY1305_SHA256
+      - 0xc02b          # ECDHE-ECDSA-AES128-GCM-SHA256
+      - 0xc02f          # ECDHE-RSA-AES128-GCM-SHA256
+      - 0xc02c          # ECDHE-ECDSA-AES256-GCM-SHA384
+      - 0xc030          # ECDHE-RSA-AES256-GCM-SHA384
+      - 0xcca9          # ECDHE-ECDSA-CHACHA20-POLY1305
+      - 0xcca8          # ECDHE-RSA-CHACHA20-POLY1305
+      - 0xc013          # ECDHE-RSA-AES128-SHA
+      - 0xc014          # ECDHE-RSA-AES256-SHA
+      - 0x009c          # RSA-AES128-GCM-SHA256
+      - 0x009d          # RSA-AES256-GCM-SHA384
+      - 0x002f          # RSA-AES128-SHA
+      - 0x0035          # RSA-AES256-SHA
+    curves:             # X25519 | X25519Kyber768 | P256 | P384 | P521
+      - "X25519Kyber768"
+      - "X25519"
+      - "P256"
+    versions:           # TLS versions to advertise
+      - "1.3"
+      - "1.2"
+    extensions:         # extension type IDs in order (controls JA3 extensions component)
+      - 0x0a0a          # GREASE
+      - 0               # server_name (SNI)
+      - 23              # extended_master_secret
+      - 65281           # renegotiation_info
+      - 10              # supported_groups
+      - 11              # ec_point_formats
+      - 35              # session_ticket
+      - 16              # ALPN
+      - 5               # status_request
+      - 18              # signed_certificate_timestamp
+      - 13              # signature_algorithms
+      - 51              # key_share
+      - 45              # psk_key_exchange_modes
+      - 43              # supported_versions
+      - 27              # compress_certificate
+      - 17513           # application_settings (ALPS)
+      - 0x0a0a          # GREASE
+      - 21              # padding
+```
+
+**Supported extension type IDs**
+
+| ID | Name | Notes |
+|---|---|---|
+| `0xXAXA` (any GREASE pattern) | GREASE | Randomised per connection |
+| `0` | server_name (SNI) | |
+| `5` | status_request | OCSP stapling |
+| `10` | supported_groups | Uses the `curves` list |
+| `11` | ec_point_formats | Fixed: uncompressed (0) |
+| `13` | signature_algorithms | Chrome-like defaults |
+| `16` | ALPN | Advertises `h2`, `http/1.1` |
+| `18` | signed_certificate_timestamp | |
+| `21` | padding | BoringSSL-style padding |
+| `23` | extended_master_secret | |
+| `27` | compress_certificate | |
+| `28` | record_size_limit | Fixed: 0x4001 |
+| `35` | session_ticket | |
+| `43` | supported_versions | Uses the `versions` list |
+| `45` | psk_key_exchange_modes | PSK with DHE |
+| `50` | signature_algorithms_cert | Chrome-like defaults |
+| `51` | key_share | Key shares for X25519 and P256 (from `curves`) |
+| `17513` | application_settings (ALPS) | Advertises `h2` |
+| `65281` | renegotiation_info | |
+| other | GenericExtension | Sent with empty payload |
+
+> **Note:** `preset: "custom"` is a startup-only setting — it is read from `config.yaml` and cannot be switched via the management API or Chrome extension at runtime. Use a named preset for runtime switching.
 
 ## Usage
 
