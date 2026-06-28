@@ -30,7 +30,7 @@ curl / browser / Playwright
 | Layer | What you can control |
 |-------|----------------------|
 | TLS | Cipher suites, extensions, their order (JA3 / JA4) via uTLS presets |
-| HTTP/1.1 | Header order, User-Agent, add/remove any header |
+| HTTP/1.1 | Header order, User-Agent, add/remove any header, IP spoofing (`X-Forwarded-For` / `True-Client-IP`) |
 | HTTP/2 | SETTINGS values & order, WINDOW_UPDATE, pseudo-header order (HTTP/2 fingerprint) |
 
 ## Prerequisites
@@ -138,6 +138,10 @@ tls:
 http:
   # Override User-Agent (leave empty to pass through the client's UA)
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+  # Spoof source IP: sets both X-Forwarded-For and True-Client-IP to this value,
+  # replacing any values the client may have already set (leave empty to disable)
+  # client_ip: "1.2.3.4"
 
   # Emit headers in this order; headers not listed are appended after
   header_order:
@@ -251,6 +255,7 @@ Key fields to check:
 | `http2.akamai_fingerprint` | HTTP/2 fingerprint string (SETTINGS + WINDOW\_UPDATE + pseudo-header order) — field name is defined by the tls.peet.ws API |
 | `http1.headers` | Header names in the order received by the server |
 | `user_agent` | User-Agent as seen by the server |
+| `ip` | Source IP as seen by the server — verify `X-Forwarded-For` / `True-Client-IP` spoofing here |
 
 ## Project structure
 

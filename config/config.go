@@ -21,6 +21,7 @@ type TLSConfig struct {
 
 type HTTPConfig struct {
 	UserAgent     string            `yaml:"user_agent"`
+	ClientIP      string            `yaml:"client_ip"`
 	HeaderOrder   []string          `yaml:"header_order"`
 	AddHeaders    map[string]string `yaml:"add_headers"`
 	RemoveHeaders []string          `yaml:"remove_headers"`
