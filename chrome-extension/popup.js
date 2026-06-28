@@ -107,13 +107,28 @@ async function init() {
   try {
     const cfg = await fetchConfig(mgmtAddr);
     el('tlsPreset').value = cfg.tls_preset || 'chrome';
-    el('clientIP').value  = cfg.client_ip  || '';
-    el('userAgent').value = cfg.user_agent || '';
+    setRandomField('clientIP',  'clientIPRandom',   cfg.client_ip  || '');
+    setRandomField('userAgent', 'userAgentRandom',  cfg.user_agent || '');
     const { host, port } = parseListenAddr(cfg.listen);
     setStatus('connected', `Connected · ${host}:${port}`);
   } catch {
     setStatus('disconnected', 'Proxy offline');
   }
+}
+
+// setRandomField syncs a text input + its random checkbox from a config value.
+// If value is "random", the checkbox is checked and the input is disabled.
+function setRandomField(inputId, checkId, value) {
+  const isRandom = value === 'random';
+  el(checkId).checked  = isRandom;
+  el(inputId).disabled = isRandom;
+  el(inputId).value    = isRandom ? '' : value;
+}
+
+// randomFieldValue returns "random" when the checkbox is checked,
+// otherwise returns the trimmed text input value.
+function randomFieldValue(inputId, checkId) {
+  return el(checkId).checked ? 'random' : el(inputId).value.trim();
 }
 
 // ── Event listeners ──────────────────────────────────────────────────────────
@@ -134,6 +149,14 @@ el('proxyToggle').addEventListener('change', async e => {
   }
 });
 
+// Random checkboxes: toggle disabled state of the paired text input.
+el('clientIPRandom').addEventListener('change', () => {
+  el('clientIP').disabled = el('clientIPRandom').checked;
+});
+el('userAgentRandom').addEventListener('change', () => {
+  el('userAgent').disabled = el('userAgentRandom').checked;
+});
+
 // Apply button: POST settings to management API.
 el('applyBtn').addEventListener('click', async () => {
   const btn = el('applyBtn');
@@ -142,8 +165,8 @@ el('applyBtn').addEventListener('click', async () => {
     const mgmtAddr = await loadMgmtAddr();
     await postConfig(mgmtAddr, {
       tls_preset: el('tlsPreset').value,
-      client_ip:  el('clientIP').value.trim(),
-      user_agent: el('userAgent').value.trim(),
+      client_ip:  randomFieldValue('clientIP',  'clientIPRandom'),
+      user_agent: randomFieldValue('userAgent', 'userAgentRandom'),
     });
     showApplyMsg('Applied', 'success');
   } catch (err) {

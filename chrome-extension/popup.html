@@ -37,15 +37,18 @@
     </div>
 
     <div class="field">
-      <label for="clientIP">
-        Client IP
-        <span class="hint">X-Forwarded-For / True-Client-IP</span>
-      </label>
+      <div class="field-header">
+        <label for="clientIP">Client IP <span class="hint">X-Forwarded-For / True-Client-IP</span></label>
+        <label class="random-label"><input type="checkbox" id="clientIPRandom"> Random</label>
+      </div>
       <input type="text" id="clientIP" placeholder="e.g. 203.0.113.1  (empty = disabled)" spellcheck="false" autocomplete="off">
     </div>
 
     <div class="field">
-      <label for="userAgent">User-Agent <span class="hint">empty = pass through</span></label>
+      <div class="field-header">
+        <label for="userAgent">User-Agent <span class="hint">empty = pass through</span></label>
+        <label class="random-label"><input type="checkbox" id="userAgentRandom"> Random</label>
+      </div>
       <textarea id="userAgent" rows="2" placeholder="Mozilla/5.0 …" spellcheck="false"></textarea>
     </div>
 
