@@ -25,7 +25,27 @@ type ActiveConfig struct {
 }
 
 type TLSConfig struct {
-	Preset string `yaml:"preset"`
+	Preset      string      `yaml:"preset"`
+	CustomHello CustomHello `yaml:"custom_hello"`
+}
+
+// CustomHello defines the raw TLS ClientHello parameters used when preset is "custom".
+// Specify these fields to target a specific JA3 / JA4 fingerprint.
+type CustomHello struct {
+	// CipherSuites is the ordered list of cipher suite IDs (hex or decimal).
+	// Use 0x0a0a as a GREASE placeholder; uTLS randomises it per connection.
+	CipherSuites []uint16 `yaml:"cipher_suites"`
+
+	// Curves is the supported_groups list: X25519 | X25519Kyber768 | P256 | P384 | P521
+	Curves []string `yaml:"curves"`
+
+	// Versions is the supported TLS versions: "1.2" | "1.3"
+	Versions []string `yaml:"versions"`
+
+	// Extensions is the ordered list of extension type IDs.
+	// The order directly controls the extensions component of JA3.
+	// Values with the 0xXAXA pattern are treated as GREASE extensions.
+	Extensions []uint16 `yaml:"extensions"`
 }
 
 type HTTPConfig struct {

@@ -25,7 +25,7 @@ func main() {
 		log.Fatalf("load CA: %v", err)
 	}
 
-	dialer, err := fp.NewDialer(cfg.TLS.Preset)
+	dialer, err := fp.NewDialerFromConfig(cfg.TLS)
 	if err != nil {
 		log.Fatalf("init dialer: %v", err)
 	}
