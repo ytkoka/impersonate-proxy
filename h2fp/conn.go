@@ -37,6 +37,7 @@ type Conn struct {
 	headerOrder []string // regular header emission order (from HTTP config)
 	nextID      uint32   // next client-initiated stream ID (odd, starting at 1)
 	mu          sync.Mutex
+	goAway      bool // set once the server has announced it will accept no new streams
 }
 
 // Dial performs the HTTP/2 connection setup over raw:
@@ -123,6 +124,10 @@ func (c *Conn) recvServerPreface() error {
 // The pseudo-header order and regular headers follow the configured policy.
 func (c *Conn) RoundTrip(req *http.Request) (*http.Response, error) {
 	c.mu.Lock()
+	if c.goAway {
+		c.mu.Unlock()
+		return nil, fmt.Errorf("h2 connection is going away, no new streams accepted")
+	}
 	sid := c.nextID
 	c.nextID += 2
 	c.mu.Unlock()
@@ -288,7 +293,18 @@ func (c *Conn) readResponse(req *http.Request, sid uint32) (*http.Response, erro
 			// Server is granting us send quota; no action needed here.
 
 		case *http2.GoAwayFrame:
-			return nil, fmt.Errorf("GOAWAY from server: %v", f.ErrCode)
+			// A server may send a graceful GOAWAY(NO_ERROR) ahead of closing an
+			// idle/reused connection while still completing streams it already
+			// accepted (RFC 7540 §6.8). Only treat it as fatal for this response
+			// when our stream was not among the ones the server promised to finish;
+			// otherwise mark the connection retired for future requests and keep
+			// reading, since the real HEADERS/DATA for sid may still be in flight.
+			if f.ErrCode != http2.ErrCodeNo || f.LastStreamID < sid {
+				return nil, fmt.Errorf("GOAWAY from server: %v (lastStreamID=%d)", f.ErrCode, f.LastStreamID)
+			}
+			c.mu.Lock()
+			c.goAway = true
+			c.mu.Unlock()
 
 		case *http2.RSTStreamFrame:
 			if f.StreamID == sid {
