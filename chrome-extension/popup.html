@@ -33,7 +33,27 @@
         <option value="ios">iOS</option>
         <option value="random">Random</option>
         <option value="golang">Golang</option>
+        <option value="custom">Custom (JA3/JA4)</option>
       </select>
+    </div>
+
+    <div class="field" id="customHelloFields" hidden>
+      <div class="field">
+        <label for="customCiphers">Cipher Suites <span class="hint">ordered, decimal or 0x hex, comma-separated</span></label>
+        <textarea id="customCiphers" rows="2" placeholder="0x0a0a, 4865, 4866, 4867, 49195, …" spellcheck="false"></textarea>
+      </div>
+      <div class="field">
+        <label for="customCurves">Curves <span class="hint">X25519, X25519Kyber768, P256, P384, P521</span></label>
+        <input type="text" id="customCurves" placeholder="X25519, P256, P384" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="customVersions">TLS Versions</label>
+        <input type="text" id="customVersions" placeholder="1.2, 1.3" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="customExtensions">Extensions <span class="hint">ordered, decimal or 0x hex, comma-separated — controls JA3 extension order</span></label>
+        <textarea id="customExtensions" rows="2" placeholder="0x0a0a, 0, 23, 65281, 10, 11, 35, 16, 5, 13, 18, 51, 45, 43, 27, 21" spellcheck="false"></textarea>
+      </div>
     </div>
 
     <div class="field">

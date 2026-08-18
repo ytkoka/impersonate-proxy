@@ -41,8 +41,8 @@ type Dialer struct {
 	preset  string
 }
 
-// NewDialer creates a Dialer for a named preset. Used by the management API
-// for runtime preset changes; does not support "custom".
+// NewDialer creates a Dialer for a named preset. Does not support "custom";
+// use NewDialerFromConfig for that.
 func NewDialer(preset string) (*Dialer, error) {
 	id, ok := presets[preset]
 	if !ok {

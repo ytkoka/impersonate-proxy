@@ -79,6 +79,46 @@ function disableProxy() {
   });
 }
 
+// ── Custom TLS ClientHello (JA3/JA4) helpers ────────────────────────────────
+
+// parseIdList turns "0x0a0a, 4865, 4866" into [2570, 4865, 4866].
+// Accepts decimal or 0x-prefixed hex, comma/whitespace separated.
+function parseIdList(text) {
+  return (text || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(s => parseInt(s, s.toLowerCase().startsWith('0x') ? 16 : 10));
+}
+
+function parseNameList(text) {
+  return (text || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function customHelloFromForm() {
+  return {
+    cipher_suites: parseIdList(el('customCiphers').value),
+    curves: parseNameList(el('customCurves').value),
+    versions: parseNameList(el('customVersions').value),
+    extensions: parseIdList(el('customExtensions').value),
+  };
+}
+
+function setCustomHelloForm(customHello) {
+  const ch = customHello || {};
+  el('customCiphers').value = (ch.cipher_suites || []).join(', ');
+  el('customCurves').value = (ch.curves || []).join(', ');
+  el('customVersions').value = (ch.versions || []).join(', ');
+  el('customExtensions').value = (ch.extensions || []).join(', ');
+}
+
+function updateCustomHelloVisibility() {
+  el('customHelloFields').hidden = el('tlsPreset').value !== 'custom';
+}
+
 // ── UI helpers ───────────────────────────────────────────────────────────────
 
 function setStatus(state, text) {
@@ -107,6 +147,8 @@ async function init() {
   try {
     const cfg = await fetchConfig(mgmtAddr);
     el('tlsPreset').value = cfg.tls_preset || 'chrome';
+    setCustomHelloForm(cfg.custom_hello);
+    updateCustomHelloVisibility();
     setRandomField('clientIP',  'clientIPRandom',   cfg.client_ip  || '');
     setRandomField('userAgent', 'userAgentRandom',  cfg.user_agent || '');
     const { host, port } = parseListenAddr(cfg.listen);
@@ -149,6 +191,9 @@ el('proxyToggle').addEventListener('change', async e => {
   }
 });
 
+// TLS preset select: show/hide the custom ClientHello fields.
+el('tlsPreset').addEventListener('change', updateCustomHelloVisibility);
+
 // Random checkboxes: toggle disabled state of the paired text input.
 el('clientIPRandom').addEventListener('change', () => {
   el('clientIP').disabled = el('clientIPRandom').checked;
@@ -164,9 +209,10 @@ el('applyBtn').addEventListener('click', async () => {
   try {
     const mgmtAddr = await loadMgmtAddr();
     await postConfig(mgmtAddr, {
-      tls_preset: el('tlsPreset').value,
-      client_ip:  randomFieldValue('clientIP',  'clientIPRandom'),
-      user_agent: randomFieldValue('userAgent', 'userAgentRandom'),
+      tls_preset:   el('tlsPreset').value,
+      custom_hello: customHelloFromForm(),
+      client_ip:    randomFieldValue('clientIP',  'clientIPRandom'),
+      user_agent:   randomFieldValue('userAgent', 'userAgentRandom'),
     });
     showApplyMsg('Applied', 'success');
   } catch (err) {

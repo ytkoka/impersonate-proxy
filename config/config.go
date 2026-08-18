@@ -18,10 +18,11 @@ type Config struct {
 
 // ActiveConfig holds the subset of Config that can be changed at runtime via the management API.
 type ActiveConfig struct {
-	TLSPreset string `json:"tls_preset"`
-	ClientIP  string `json:"client_ip"`
-	UserAgent string `json:"user_agent"`
-	Listen    string `json:"listen"`
+	TLSPreset   string      `json:"tls_preset"`
+	CustomHello CustomHello `json:"custom_hello"`
+	ClientIP    string      `json:"client_ip"`
+	UserAgent   string      `json:"user_agent"`
+	Listen      string      `json:"listen"`
 }
 
 type TLSConfig struct {
@@ -34,18 +35,18 @@ type TLSConfig struct {
 type CustomHello struct {
 	// CipherSuites is the ordered list of cipher suite IDs (hex or decimal).
 	// Use 0x0a0a as a GREASE placeholder; uTLS randomises it per connection.
-	CipherSuites []uint16 `yaml:"cipher_suites"`
+	CipherSuites []uint16 `yaml:"cipher_suites" json:"cipher_suites"`
 
 	// Curves is the supported_groups list: X25519 | X25519Kyber768 | P256 | P384 | P521
-	Curves []string `yaml:"curves"`
+	Curves []string `yaml:"curves" json:"curves"`
 
 	// Versions is the supported TLS versions: "1.2" | "1.3"
-	Versions []string `yaml:"versions"`
+	Versions []string `yaml:"versions" json:"versions"`
 
 	// Extensions is the ordered list of extension type IDs.
 	// The order directly controls the extensions component of JA3.
 	// Values with the 0xXAXA pattern are treated as GREASE extensions.
-	Extensions []uint16 `yaml:"extensions"`
+	Extensions []uint16 `yaml:"extensions" json:"extensions"`
 }
 
 type HTTPConfig struct {
