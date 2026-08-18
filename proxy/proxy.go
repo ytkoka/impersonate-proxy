@@ -60,23 +60,26 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return config.ActiveConfig{
-		TLSPreset: s.cfg.TLS.Preset,
-		ClientIP:  s.cfg.HTTP.ClientIP,
-		UserAgent: s.cfg.HTTP.UserAgent,
-		Listen:    s.cfg.Listen,
+		TLSPreset:   s.cfg.TLS.Preset,
+		CustomHello: s.cfg.TLS.CustomHello,
+		ClientIP:    s.cfg.HTTP.ClientIP,
+		UserAgent:   s.cfg.HTTP.UserAgent,
+		Listen:      s.cfg.Listen,
 	}
 }
 
 // Update atomically replaces the TLS dialer and HTTP rewriter with new settings.
+// tls.Preset == "custom" builds the ClientHello from tls.CustomHello, allowing
+// an arbitrary JA3/JA4 fingerprint instead of one of the named browser presets.
 // New connections pick up the change immediately; in-flight connections are unaffected.
-func (s *Server) Update(preset, clientIP, userAgent string) error {
-	d, err := fp.NewDialer(preset)
+func (s *Server) Update(tls config.TLSConfig, clientIP, userAgent string) error {
+	d, err := fp.NewDialerFromConfig(tls)
 	if err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cfg.TLS.Preset = preset
+	s.cfg.TLS = tls
 	s.cfg.HTTP.ClientIP = clientIP
 	s.cfg.HTTP.UserAgent = userAgent
 	s.dialer = d
@@ -118,7 +121,7 @@ func (s *Server) handle(conn net.Conn) {
 	if req.Method == http.MethodConnect {
 		s.handleConnect(conn, req, deps)
 	} else {
-		s.handleHTTP(conn, req, deps)
+		s.handleHTTP(conn, br, req, deps)
 	}
 }
 
@@ -233,36 +236,55 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn, deps connDep
 	}
 }
 
-// handleHTTP forwards a plain-HTTP proxy request.
-func (s *Server) handleHTTP(clientConn net.Conn, req *http.Request, deps connDeps) {
-	host := req.Host
-	if !strings.Contains(host, ":") {
-		host += ":80"
-	}
-	serverConn, err := net.Dial("tcp", host)
-	if err != nil {
-		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
-		return
-	}
-	defer serverConn.Close()
+// handleHTTP forwards plain-HTTP proxy requests, looping to serve further
+// requests pipelined over the same client connection (HTTP/1.1 keep-alive)
+// until the client or origin signals Connection: close. Each request may
+// target a different Host, so a fresh server connection is dialed per request.
+func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *http.Request, deps connDeps) {
+	for {
+		host := req.Host
+		if !strings.Contains(host, ":") {
+			host += ":80"
+		}
+		serverConn, err := net.Dial("tcp", host)
+		if err != nil {
+			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+			return
+		}
 
-	req.RequestURI = req.URL.RequestURI()
-	for _, h := range hopByHopHeaders {
-		req.Header.Del(h)
-	}
-	deps.rewriter.Apply(req)
+		req.RequestURI = req.URL.RequestURI()
+		for _, h := range hopByHopHeaders {
+			req.Header.Del(h)
+		}
+		deps.rewriter.Apply(req)
 
-	if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
-		return
-	}
-	resp, err := http.ReadResponse(bufio.NewReader(serverConn), req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
+		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
+			serverConn.Close()
+			return
+		}
+		resp, err := http.ReadResponse(bufio.NewReader(serverConn), req)
+		if err != nil {
+			serverConn.Close()
+			return
+		}
 
-	log.Printf("HTTP  %s %s → %d", req.Method, req.URL, resp.StatusCode)
-	resp.Write(clientConn)
+		log.Printf("HTTP  %s %s → %d", req.Method, req.URL, resp.StatusCode)
+		closeAfter := resp.Close || req.Close
+		writeErr := resp.Write(clientConn)
+		resp.Body.Close()
+		serverConn.Close()
+		if writeErr != nil {
+			return
+		}
+		if closeAfter {
+			return
+		}
+
+		req, err = http.ReadRequest(clientBR)
+		if err != nil {
+			return
+		}
+	}
 }
 
 // writeRequest writes req to w with headers emitted in order first, then the rest.
