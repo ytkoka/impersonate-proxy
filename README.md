@@ -2,6 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+**English** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
+
 A local MITM proxy that lets you control TLS fingerprints (JA3/JA4), HTTP/2 fingerprints, HTTP header order, User-Agent, and source IP headers — all from a single YAML config file.
 
 A **Chrome extension** is included for toggling the proxy and switching fingerprint profiles directly from the browser toolbar without restarting the proxy.
