@@ -188,8 +188,8 @@ When the proxy starts it also exposes a lightweight HTTP API on `mgmt_listen` (d
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/config` | `GET` | Return active settings as JSON |
-| `/api/config` | `POST` | Update TLS preset, client IP, and User-Agent |
+| `/api/config` | `GET` | Return active settings as JSON, including the current `custom_hello` |
+| `/api/config` | `POST` | Update TLS preset (including a fully custom `custom_hello`), client IP, and User-Agent |
 
 ```bash
 # Read current settings
@@ -199,6 +199,22 @@ curl http://127.0.0.1:8081/api/config
 curl -s -X POST http://127.0.0.1:8081/api/config \
   -H "Content-Type: application/json" \
   -d '{"tls_preset":"firefox","client_ip":"203.0.113.1","user_agent":""}'
+
+# Switch to an arbitrary JA3/JA4 fingerprint at runtime — same fields as the
+# config.yaml custom_hello block, sent as JSON (see "Custom TLS fingerprint" below)
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tls_preset": "custom",
+    "custom_hello": {
+      "cipher_suites": [2570, 4865, 4866, 4867, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+      "curves": ["X25519", "P256", "P384"],
+      "versions": ["1.3", "1.2"],
+      "extensions": [2570, 0, 23, 65281, 10, 11, 35, 16, 5, 18, 13, 51, 45, 43, 27, 21]
+    },
+    "client_ip": "",
+    "user_agent": ""
+  }'
 ```
 
 Changes take effect immediately for new connections. Set `mgmt_listen: ""` to disable the API entirely.
@@ -302,7 +318,7 @@ tls:
 | `65281` | renegotiation_info | |
 | other | GenericExtension | Sent with empty payload |
 
-> **Note:** `preset: "custom"` is a startup-only setting — it is read from `config.yaml` and cannot be switched via the management API or Chrome extension at runtime. Use a named preset for runtime switching.
+> **Runtime updates:** `preset: "custom"` is not limited to `config.yaml` — it can also be switched to at runtime via the management API (`POST /api/config` with a `custom_hello` object, see [Management API](#management-api)) or from the Chrome extension's TLS Preset dropdown, without restarting the proxy.
 
 ## Usage
 
@@ -342,7 +358,8 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 | Control | What it does |
 |---|---|
 | Proxy toggle | Enables / disables Chrome's proxy setting (routes traffic through `:8080`) |
-| TLS Preset | Switches the uTLS fingerprint preset (chrome / firefox / safari / edge / ios) |
+| TLS Preset | Switches the uTLS fingerprint preset (chrome / firefox / safari / edge / ios / random / golang / **custom**) |
+| Cipher Suites / Curves / TLS Versions / Extensions | Shown when **Custom (JA3/JA4)** is selected — the same fields as `custom_hello` in `config.yaml`, letting you dial in an arbitrary JA3/JA4 fingerprint without editing YAML or restarting the proxy |
 | Client IP | Sets `X-Forwarded-For` and `True-Client-IP` on every request |
 | User-Agent | Overrides the HTTP `User-Agent` header |
 | Apply button | POSTs the new settings to the management API; takes effect immediately |
