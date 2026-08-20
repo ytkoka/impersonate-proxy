@@ -10,7 +10,16 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_icon": "icon.svg",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    },
     "default_title": "Impersonate Proxy"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
   }
 }
