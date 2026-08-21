@@ -135,6 +135,12 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/ca.crt"
 
 ### 1. 启动代理
 
+> **仅限 Linux:** 容器以非特权用户(`nonroot`,UID 65532)运行,需要对保存 CA 证书/密钥的 `./data` 目录有写权限。如果 `./data` 尚不存在,Docker 会自动创建它并归属 `root`,其他用户没有写权限,导致容器首次启动时无法生成 CA。请提前以正确的属主创建该目录:
+> ```bash
+> mkdir -p data && sudo chown 65532:65532 data
+> ```
+> 在 Docker Desktop for Mac/Windows 上不需要此步骤——其绑定挂载层会自动映射属主。
+
 ```bash
 git clone https://github.com/ytkoka/impersonate-proxy.git
 cd impersonate-proxy

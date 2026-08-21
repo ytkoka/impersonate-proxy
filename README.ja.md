@@ -135,6 +135,12 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/ca.crt"
 
 ### 1. プロキシを起動する
 
+> **Linux環境限定の注意:** コンテナは非特権ユーザー(`nonroot`、UID 65532)で動作し、CA証明書/鍵を保存する `./data` ディレクトリへの書き込み権限が必要です。`./data` が存在しない状態で初回起動すると、Dockerが自動作成するディレクトリの所有者は `root` になり他ユーザーからは書き込めないため、CA証明書の生成に失敗します。事前に正しい所有者で作成しておいてください:
+> ```bash
+> mkdir -p data && sudo chown 65532:65532 data
+> ```
+> Docker Desktop for Mac/Windowsでは、バインドマウント層が所有権を自動的にマッピングするため不要です。
+
 ```bash
 git clone https://github.com/ytkoka/impersonate-proxy.git
 cd impersonate-proxy

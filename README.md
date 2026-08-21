@@ -135,6 +135,12 @@ Run the proxy in a container — no local Go/Make install required.
 
 ### 1. Start the proxy
 
+> **Linux only:** the container runs as an unprivileged user (`nonroot`, UID 65532) and needs write access to the `./data` directory that holds the CA cert/key. If `./data` doesn't exist yet, Docker auto-creates it owned by `root` with no write access for other users, so the container will fail to generate the CA on first run. Create it with the right owner beforehand:
+> ```bash
+> mkdir -p data && sudo chown 65532:65532 data
+> ```
+> Not needed on Docker Desktop for Mac/Windows — its bind-mount layer maps ownership automatically.
+
 ```bash
 git clone https://github.com/ytkoka/impersonate-proxy.git
 cd impersonate-proxy
