@@ -239,6 +239,7 @@
       <span class="pill"><span class="dot"></span>Go · uTLS</span>
       <span class="pill">MIT License</span>
       <span class="pill">macOS &amp; Linux</span>
+      <span class="pill">Docker</span>
     </div>
     <h1>Control your <span class="hl">TLS &amp; HTTP/2 fingerprint</span><br>from one config file</h1>
     <p class="subtitle">A local MITM proxy for authorized WAF and bot-detection testing. Shape JA3/JA4, HTTP/2 SETTINGS, header order, User-Agent, and source IP — per connection, no target-side changes needed.</p>
@@ -345,7 +346,7 @@
     <div class="section-head">
       <div class="eyebrow">Quick start</div>
       <h2>Up and running in four steps</h2>
-      <p class="section-desc">Requires Go 1.22+ on macOS or Linux (amd64/arm64). See the README for full install and Linux instructions.</p>
+      <p class="section-desc">Requires Go 1.22+ on macOS or Linux (amd64/arm64) — or skip the Go install entirely with Docker. See the README for full install and Linux instructions.</p>
     </div>
     <div class="steps">
       <div class="step">
@@ -386,6 +387,9 @@ curl --cacert ca.crt ...</pre>
   https://tls.peet.ws/api/all</pre>
         </div>
       </div>
+    </div>
+    <div class="install-opts" style="margin-top: 26px;">
+      <div class="install-opt"><b>Prefer Docker?</b> <span>No local Go/Make install needed — clone the repo and run <code>docker compose up -d</code> to build and start the proxy in a container, with the CA persisted across restarts.</span> <a href="https://github.com/ytkoka/impersonate-proxy#docker">See Docker setup →</a></div>
     </div>
   </section>
 
