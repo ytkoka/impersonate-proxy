@@ -4,6 +4,8 @@
 
 **English** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
+[![Available in the Chrome Web Store](https://storage.googleapis.com/web-dev-uploads/image/WlD8wC6g8khYWPJUsQceQkhXSlv1/UV4C4ybeBTsZt43U4xis.png)](https://chromewebstore.google.com/detail/impersonate-proxy/maodbpimhodidbmbiknomgjfhaondncn)
+
 A local MITM proxy that lets you control TLS fingerprints (JA3/JA4), HTTP/2 fingerprints, HTTP header order, User-Agent, and source IP headers — all from a single YAML config file.
 
 A **Chrome extension** is included for toggling the proxy and switching fingerprint profiles directly from the browser toolbar without restarting the proxy.
@@ -350,10 +352,10 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 <img src="image/chrome-extension.png" alt="Chrome extension popup" width="280">
 
 **Installation:**
+Chrome Extension
+Available on the Chrome Web Store:
+https://chromewebstore.google.com/detail/impersonate-proxy/maodbpimhodidbmbiknomgjfhaondncn
 
-1. Open `chrome://extensions` in Chrome
-2. Enable **Developer mode** (toggle in the top-right corner)
-3. Click **Load unpacked** and select the `chrome-extension/` folder
 
 **Controls:**
 
