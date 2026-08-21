@@ -1,7 +1,7 @@
 # impersonate-proxy
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Available in the Chrome Web Store](https://developer.chrome.com/static/docs/webstore/branding/image/iNEddTyWiMfLSwFD6qGq.png)](https://chromewebstore.google.com/detail/impersonate-proxy/maodbpimhodidbmbiknomgjfhaondncn)
+
 **English** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
 A local MITM proxy that lets you control TLS fingerprints (JA3/JA4), HTTP/2 fingerprints, HTTP header order, User-Agent, and source IP headers — all from a single YAML config file.
