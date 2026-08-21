@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>impersonate-proxy — TLS/HTTP2 fingerprint proxy for WAF testing</title>
+<meta name="description" content="A local MITM proxy that controls TLS (JA3/JA4), HTTP/2, header order, User-Agent and source IP fingerprints — with a Chrome extension for live switching.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<style>
+  :root{
+    --bg: #0b1220;
+    --bg-elevated: #111a2c;
+    --bg-card: #131d33;
+    --border: #223151;
+    --border-soft: #1a2740;
+    --text: #e7ecf7;
+    --text-dim: #9fb0cc;
+    --text-faint: #6d7fa3;
+    --accent: #60a5fa;
+    --accent-soft: rgba(96,165,250,0.12);
+    --accent-strong: #93c5fd;
+    --code-bg: #0d1526;
+    --warn-bg: #2a1a10;
+    --warn-border: #7c4a1e;
+    --warn-text: #f4b872;
+    --radius: 12px;
+    --mono: "SF Mono", ui-monospace, "Roboto Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  html{ scroll-behavior: smooth; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a{ color: var(--accent-strong); text-decoration: none; }
+  a:hover{ text-decoration: underline; }
+  code, pre{ font-family: var(--mono); }
+  .wrap{ max-width: 1040px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  header.nav{
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(11,18,32,0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .nav-inner{ display:flex; align-items:center; justify-content:space-between; padding: 14px 24px; max-width: 1040px; margin: 0 auto; }
+  .brand{ display:flex; align-items:center; gap:10px; font-weight:600; color: var(--text); }
+  .brand img{ width: 24px; height: 24px; border-radius: 6px; }
+  .nav-links{ display:flex; align-items:center; gap: 22px; font-size: 14px; }
+  .nav-links a{ color: var(--text-dim); }
+  .nav-links a:hover{ color: var(--text); text-decoration: none; }
+  .btn-ghost{
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px;
+    color: var(--text) !important;
+  }
+  .btn-ghost:hover{ border-color: var(--accent); text-decoration: none; background: var(--accent-soft); }
+
+  /* hero */
+  .hero{ padding: 88px 0 64px; text-align:center; }
+  .badge-row{ display:flex; justify-content:center; gap:10px; margin-bottom: 22px; flex-wrap: wrap; }
+  .pill{
+    display:inline-flex; align-items:center; gap:6px;
+    font-size: 12.5px; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-dim);
+    background: var(--bg-elevated);
+  }
+  .pill .dot{ width:6px; height:6px; border-radius:50%; background: var(--accent); }
+  h1{ font-size: 44px; line-height:1.15; margin: 0 0 18px; letter-spacing: -0.02em; }
+  h1 .hl{ color: var(--accent-strong); }
+  .subtitle{ font-size: 18px; color: var(--text-dim); max-width: 640px; margin: 0 auto 12px; }
+  .subtitle-sub{ font-size: 15px; color: var(--text-faint); max-width: 600px; margin: 0 auto 34px; }
+  .cta-row{ display:flex; gap: 14px; justify-content:center; flex-wrap: wrap; }
+  .btn{
+    display:inline-flex; align-items:center; gap: 8px;
+    padding: 11px 20px; border-radius: 9px; font-size: 14.5px; font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .btn-primary{ background: var(--accent); color: #0b1220 !important; }
+  .btn-primary:hover{ background: var(--accent-strong); text-decoration:none; }
+  .btn-secondary{ border-color: var(--border); color: var(--text) !important; background: var(--bg-elevated); }
+  .btn-secondary:hover{ border-color: var(--accent); text-decoration:none; }
+
+  /* section shell */
+  section{ padding: 56px 0; border-top: 1px solid var(--border-soft); }
+  .section-head{ margin-bottom: 34px; text-align:center; }
+  .eyebrow{ font-size: 12.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 10px; }
+  h2{ font-size: 28px; margin: 0 0 10px; letter-spacing: -0.01em; }
+  .section-desc{ color: var(--text-dim); max-width: 620px; margin: 0 auto; font-size: 15.5px; }
+
+  /* diagram */
+  .diagram{
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px; overflow-x: auto;
+  }
+  .diagram pre{ margin:0; font-size: 13px; color: var(--text-dim); line-height: 1.55; }
+  .diagram .accent{ color: var(--accent-strong); }
+  .layer-table{ width:100%; border-collapse: collapse; margin-top: 24px; font-size: 14px; }
+  .layer-table th, .layer-table td{ text-align:left; padding: 10px 14px; border-bottom: 1px solid var(--border-soft); }
+  .layer-table th{ color: var(--text-faint); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .layer-table td:first-child{ color: var(--accent-strong); font-family: var(--mono); white-space: nowrap; }
+  .layer-table td{ color: var(--text-dim); }
+
+  /* feature grid */
+  .grid{ display:grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card{
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 22px;
+  }
+  .card .icon{
+    width: 34px; height: 34px; border-radius: 9px; background: var(--accent-soft);
+    display:flex; align-items:center; justify-content:center; margin-bottom: 14px;
+    color: var(--accent-strong); font-size: 16px;
+  }
+  .card h3{ font-size: 15.5px; margin: 0 0 8px; color: var(--text); }
+  .card p{ font-size: 13.8px; color: var(--text-dim); margin: 0; }
+
+  /* steps */
+  .steps{ display:flex; flex-direction:column; gap: 18px; }
+  .step{ display:grid; grid-template-columns: 34px 1fr; gap: 16px; }
+  .step-num{
+    width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft);
+    color: var(--accent-strong); display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size: 14px; border: 1px solid var(--border);
+  }
+  .step-body h3{ margin: 4px 0 8px; font-size: 15.5px; }
+  .step-body p{ margin: 0 0 10px; color: var(--text-dim); font-size: 14px; }
+
+  pre.code{
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 9px; padding: 14px 16px; overflow-x: auto;
+    font-size: 13px; color: #cfe0ff; margin: 0;
+  }
+  pre.code .c{ color: var(--text-faint); }
+  pre.code .s{ color: #9ece6a; }
+
+  /* extension */
+  .ext-layout{ display:grid; grid-template-columns: 240px 1fr; gap: 40px; align-items: start; }
+  .ext-shot{
+    border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; background: var(--bg-card);
+  }
+  .ext-shot img{ display:block; width: 100%; height:auto; }
+  .ext-controls{ width:100%; border-collapse: collapse; font-size: 13.8px; }
+  .ext-controls th, .ext-controls td{ text-align:left; padding: 9px 0; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+  .ext-controls th{ color: var(--text); font-weight:600; white-space: nowrap; padding-right: 18px; width: 150px; }
+  .ext-controls td{ color: var(--text-dim); }
+  .install-opts{ display:flex; flex-direction:column; gap: 10px; margin-top: 18px; }
+  .install-opt{
+    border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; font-size: 13.8px;
+    background: var(--bg-elevated);
+  }
+  .install-opt b{ color: var(--text); }
+  .install-opt span{ color: var(--text-dim); }
+
+  /* legal */
+  .legal-box{
+    background: var(--warn-bg); border: 1px solid var(--warn-border);
+    border-radius: var(--radius); padding: 24px 26px;
+  }
+  .legal-box h3{ color: var(--warn-text); margin: 0 0 10px; font-size: 16px; }
+  .legal-box p{ color: #e8c9a3; font-size: 14px; margin: 0 0 8px; }
+  .legal-box p:last-child{ margin-bottom: 0; }
+  .legal-box strong{ color: var(--warn-text); }
+
+  footer{ padding: 40px 0 60px; text-align:center; }
+  footer .foot-links{ display:flex; justify-content:center; gap: 20px; margin-bottom: 14px; font-size: 13.5px; }
+  footer p{ color: var(--text-faint); font-size: 13px; margin: 4px 0; }
+
+  @media (max-width: 760px){
+    h1{ font-size: 32px; }
+    .grid{ grid-template-columns: 1fr; }
+    .ext-layout{ grid-template-columns: 1fr; }
+    .ext-shot{ max-width: 220px; margin: 0 auto; }
+    .nav-links{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="nav-inner">
+    <div class="brand"><img src="assets/icon.svg" alt=""> impersonate-proxy</div>
+    <nav class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#quickstart">Quick Start</a>
+      <a href="#extension">Chrome Extension</a>
+      <a href="#verify">Verifying</a>
+      <a class="btn-ghost" href="https://github.com/ytkoka/impersonate-proxy">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero wrap">
+    <div class="badge-row">
+      <span class="pill"><span class="dot"></span>Go · uTLS</span>
+      <span class="pill">MIT License</span>
+      <span class="pill">macOS &amp; Linux</span>
+    </div>
+    <h1>Control your <span class="hl">TLS &amp; HTTP/2 fingerprint</span><br>from one config file</h1>
+    <p class="subtitle">A local MITM proxy for authorized WAF and bot-detection testing. Shape JA3/JA4, HTTP/2 SETTINGS, header order, User-Agent, and source IP — per connection, no target-side changes needed.</p>
+    <p class="subtitle-sub">Route curl, a browser, or Playwright through it and watch how different fingerprint combinations get classified.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/ytkoka/impersonate-proxy">View on GitHub</a>
+      <a class="btn btn-secondary" href="https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn">Chrome Web Store</a>
+      <a class="btn btn-secondary" href="#quickstart">Quick Start →</a>
+    </div>
+  </section>
+
+  <section id="how" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">How it works</div>
+      <h2>One proxy, three tunable layers</h2>
+      <p class="section-desc">Traffic tunnels through the proxy via HTTP CONNECT. The proxy terminates TLS with its own MITM CA, then re-establishes an outbound connection to the target using a custom TLS ClientHello and HTTP/2 framing.</p>
+    </div>
+    <div class="diagram">
+<pre>curl / browser / Playwright
+        │  HTTP CONNECT (to proxy)
+        ▼
+┌─────────────────────────────────────────┐
+│            <span class="accent">impersonate-proxy</span>            │
+│                                         │
+│  MITM TLS ◄──────────────► uTLS         │
+│  (our CA cert)          (custom JA3/4)  │
+│                                         │
+│  Header rewriter (UA, order, add/del)   │
+│  HTTP/2 framer  (SETTINGS, WINDOW_UPDATE│
+│                  pseudo-header order)   │
+└─────────────────────────────────────────┘
+        │  Custom TLS ClientHello + HTTP/2
+        ▼
+   Target server / WAF</pre>
+    </div>
+    <table class="layer-table">
+      <tr><th>Layer</th><th>What you can control</th></tr>
+      <tr><td>TLS</td><td>Cipher suites, extensions, and their order (JA3 / JA4) via uTLS presets or a fully custom <code>custom_hello</code> spec</td></tr>
+      <tr><td>HTTP/1.1</td><td>Header order, User-Agent, add/remove any header, IP spoofing (<code>X-Forwarded-For</code> / <code>True-Client-IP</code>)</td></tr>
+      <tr><td>HTTP/2</td><td>SETTINGS values &amp; order, WINDOW_UPDATE, pseudo-header order (HTTP/2 fingerprint)</td></tr>
+    </table>
+  </section>
+
+  <section id="features" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Features</div>
+      <h2>Everything a WAF sees, in your control</h2>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">◈</div>
+        <h3>TLS presets (JA3 / JA4)</h3>
+        <p>Ship as Chrome, Firefox, Safari, Edge, iOS, or a fully custom ClientHello spec — cipher suites, curves, extensions, and order.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⇄</div>
+        <h3>HTTP/2 fingerprint</h3>
+        <p>Hand-built framer controls SETTINGS values &amp; order, WINDOW_UPDATE, and pseudo-header order — not left to Go's default transport.</p>
+      </div>
+      <div class="card">
+        <div class="icon">≡</div>
+        <h3>Header order &amp; UA</h3>
+        <p>Reorder any HTTP/1.1 header, override the User-Agent, or add/remove headers before they leave the proxy.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◎</div>
+        <h3>Source IP spoofing</h3>
+        <p>Set <code>X-Forwarded-For</code> and <code>True-Client-IP</code> to test IP-based rules without changing your network path.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⚙</div>
+        <h3>Live management API</h3>
+        <p>A lightweight HTTP API (<code>/api/config</code>) reads and updates the running config — switch presets without restarting.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▣</div>
+        <h3>Chrome extension</h3>
+        <p>Toggle the proxy and switch fingerprint profiles from the toolbar — including a live JA3/JA4 custom-fingerprint builder.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Quick start</div>
+      <h2>Up and running in four steps</h2>
+      <p class="section-desc">Requires Go 1.22+ on macOS or Linux (amd64/arm64). See the README for full install and Linux instructions.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Clone and build</h3>
+          <pre class="code">git clone https://github.com/ytkoka/impersonate-proxy.git
+cd impersonate-proxy
+make build</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Start the proxy</h3>
+          <p>The MITM CA (<code>ca.crt</code> / <code>ca.key</code>) is generated automatically on first run.</p>
+          <pre class="code"><span class="c">$</span> make run
+<span class="c">listening on 127.0.0.1:8080  preset=chrome</span></pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Trust the CA certificate</h3>
+          <p>Clients need to trust the proxy-generated leaf certificates.</p>
+          <pre class="code"><span class="c"># macOS system keychain</span>
+make trust-ca
+
+<span class="c"># curl only, no system-wide change</span>
+curl --cacert ca.crt ...</pre>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Route traffic through it</h3>
+          <pre class="code">curl --proxy http://127.0.0.1:8080 --cacert ca.crt \
+  https://tls.peet.ws/api/all</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="config" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Configuration</div>
+      <h2>One YAML file, safe defaults</h2>
+      <p class="section-desc">Every field has a default — override only what you need. Edit <code>config.yaml</code>, then <code>make run</code>.</p>
+    </div>
+    <pre class="code">tls:
+  preset: <span class="s">"chrome"</span>          <span class="c"># chrome | firefox | safari | edge | ios | random | golang | custom</span>
+
+http:
+  header_order:
+    - <span class="s">"Host"</span>
+    - <span class="s">"User-Agent"</span>
+    - <span class="s">"Accept"</span>
+  <span class="c"># client_ip: "1.2.3.4"   # spoof X-Forwarded-For / True-Client-IP</span>
+
+http2:
+  enabled: true
+  settings:
+    - { id: 1, val: 65536 }    <span class="c"># Chrome defaults shown here</span>
+    - { id: 2, val: 0 }
+    - { id: 4, val: 6291456 }
+    - { id: 6, val: 262144 }
+  window_update: 15663105</pre>
+  </section>
+
+  <section id="extension" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Chrome extension</div>
+      <h2>Switch fingerprints from the toolbar</h2>
+      <p class="section-desc">A Manifest V3 extension in <code>chrome-extension/</code> talks to the proxy's management API — no restart required.</p>
+    </div>
+    <div class="ext-layout">
+      <div class="ext-shot">
+        <img src="assets/chrome-extension.png" alt="impersonate-proxy Chrome extension popup showing proxy toggle, TLS preset selector, and Apply button">
+      </div>
+      <div>
+        <table class="ext-controls">
+          <tr><th>Proxy toggle</th><td>Enables / disables Chrome's proxy setting (routes traffic through <code>:8080</code>)</td></tr>
+          <tr><th>TLS Preset</th><td>chrome / firefox / safari / edge / ios / random / golang / <strong>custom</strong></td></tr>
+          <tr><th>Custom JA3/JA4</th><td>Cipher suites, curves, TLS versions, and extensions — shown when <strong>Custom</strong> is selected</td></tr>
+          <tr><th>Client IP</th><td>Sets <code>X-Forwarded-For</code> and <code>True-Client-IP</code> on every request</td></tr>
+          <tr><th>User-Agent</th><td>Overrides the HTTP <code>User-Agent</code> header (not <code>navigator.userAgent</code>)</td></tr>
+          <tr><th>Apply</th><td>POSTs the new settings to the management API — takes effect immediately</td></tr>
+        </table>
+        <div class="install-opts">
+          <div class="install-opt"><b>Option A — Chrome Web Store (recommended):</b> <span>install directly, updates automatically.</span> <a href="https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn">Get it here →</a></div>
+          <div class="install-opt"><b>Option B — Load unpacked:</b> <span>open <code>chrome://extensions</code>, enable Developer mode, click Load unpacked, select the <code>chrome-extension/</code> folder.</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="verify" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">Verifying fingerprints</div>
+      <h2>Confirm what the server actually sees</h2>
+      <p class="section-desc"><a href="https://tls.peet.ws">tls.peet.ws</a> echoes back the full fingerprint breakdown for any request it receives.</p>
+    </div>
+    <pre class="code">curl -s --proxy http://127.0.0.1:8080 --cacert ca.crt \
+  https://tls.peet.ws/api/all | python3 -m json.tool</pre>
+    <table class="layer-table" style="margin-top:24px;">
+      <tr><th>Field</th><th>Description</th></tr>
+      <tr><td>tls.ja3_hash</td><td>JA3 fingerprint hash</td></tr>
+      <tr><td>tls.ja4</td><td>JA4 fingerprint string</td></tr>
+      <tr><td>http2.akamai_fingerprint</td><td>HTTP/2 fingerprint (SETTINGS + WINDOW_UPDATE + pseudo-header order)</td></tr>
+      <tr><td>http1.headers</td><td>Header names in the order received by the server</td></tr>
+      <tr><td>ip</td><td>Source IP as seen by the server</td></tr>
+    </table>
+  </section>
+
+  <section class="wrap">
+    <div class="legal-box">
+      <h3>Authorized use only</h3>
+      <p>This tool is intended for <strong>authorized security testing only</strong> — for example, testing WAF and bot-detection configurations on systems you own or have explicit written permission to test.</p>
+      <p>Using this tool against systems without authorization may violate applicable laws (such as the Computer Fraud and Abuse Act, Japan's Unauthorized Computer Access Law, or equivalent legislation in your jurisdiction) and the target's terms of service.</p>
+      <p><strong>The authors accept no liability for misuse.</strong></p>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <div class="foot-links">
+    <a href="https://github.com/ytkoka/impersonate-proxy">GitHub</a>
+    <a href="https://github.com/ytkoka/impersonate-proxy/blob/main/README.ja.md">日本語 README</a>
+    <a href="https://github.com/ytkoka/impersonate-proxy/blob/main/README.zh-CN.md">简体中文 README</a>
+    <a href="https://github.com/ytkoka/impersonate-proxy/blob/main/LICENSE">MIT License</a>
+  </div>
+  <p>Built on <a href="https://github.com/refraction-networking/utls">uTLS</a> · fingerprint inspection via <a href="https://tls.peet.ws">tls.peet.ws</a> · reference: <a href="https://github.com/FoxIO-LLC/ja4">JA4+</a></p>
+  <p>© 2026 impersonate-proxy contributors</p>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <rect width="48" height="48" rx="10" fill="#1e293b"/>
+  <!-- Globe with meridians representing network proxy -->
+  <circle cx="24" cy="24" r="13" fill="none" stroke="#60a5fa" stroke-width="2"/>
+  <path d="M24 11 C19 15 19 33 24 37 C29 33 29 15 24 11Z" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+  <path d="M11 24 Q20 20 37 24" fill="none" stroke="#60a5fa" stroke-width="1.8"/>
+  <path d="M12 18 Q24 15 36 18" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity="0.6"/>
+  <path d="M12 30 Q24 33 36 30" fill="none" stroke="#60a5fa" stroke-width="1.2" opacity="0.6"/>
+</svg>
