@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Impersonate Proxy",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Control impersonate-proxy TLS preset, IP spoofing, and User-Agent from the browser toolbar.",
   "permissions": ["proxy", "storage"],
   "host_permissions": [

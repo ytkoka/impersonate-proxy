@@ -351,6 +351,10 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 
 **インストール:**
 
+**方法A — Chrome Web Store(推奨):** [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
+
+**方法B — パッケージ化されていない拡張機能を読み込む(開発用、または未リリースの変更を試す場合):**
+
 1. Chromeで `chrome://extensions` を開く
 2. **デベロッパーモード**を有効化(右上のトグル)
 3. **パッケージ化されていない拡張機能を読み込む**をクリックし、`chrome-extension/` フォルダを選択
@@ -435,7 +439,8 @@ impersonate-proxy/
 │   ├── popup.html            # ツールバーポップアップUI
 │   ├── popup.css
 │   ├── popup.js               # プロキシトグル + 管理APIクライアント
-│   └── icon.svg
+│   ├── icon.svg
+│   └── icon16.png, icon48.png, icon128.png  # ツールバー / Web Store用アイコン
 ├── config.yaml               # デフォルト設定
 └── Makefile
 ```

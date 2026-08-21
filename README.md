@@ -350,9 +350,14 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 <img src="image/chrome-extension.png" alt="Chrome extension popup" width="280">
 
 **Installation:**
-Chrome Extension
-Available on the Chrome Web Store: [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
 
+**Option A — Chrome Web Store (recommended):** [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
+
+**Option B — Load unpacked (for development, or to try unreleased changes):**
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (toggle in the top-right corner)
+3. Click **Load unpacked** and select the `chrome-extension/` folder
 
 **Controls:**
 
@@ -434,7 +439,8 @@ impersonate-proxy/
 │   ├── popup.html            # Toolbar popup UI
 │   ├── popup.css
 │   ├── popup.js              # Proxy toggle + management API client
-│   └── icon.svg
+│   ├── icon.svg
+│   └── icon16.png, icon48.png, icon128.png  # Toolbar / Web Store icons
 ├── config.yaml               # Default configuration
 └── Makefile
 ```

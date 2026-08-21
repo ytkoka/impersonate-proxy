@@ -351,6 +351,10 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 
 **安装步骤:**
 
+**方式 A — Chrome 应用商店(推荐):** [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
+
+**方式 B — 加载已解压的扩展程序(用于开发,或体验尚未发布的更改):**
+
 1. 在 Chrome 中打开 `chrome://extensions`
 2. 启用**开发者模式**(右上角开关)
 3. 点击**加载已解压的扩展程序**,选择 `chrome-extension/` 文件夹
@@ -435,7 +439,8 @@ impersonate-proxy/
 │   ├── popup.html            # 工具栏弹出窗口 UI
 │   ├── popup.css
 │   ├── popup.js               # 代理开关 + 管理 API 客户端
-│   └── icon.svg
+│   ├── icon.svg
+│   └── icon16.png, icon48.png, icon128.png  # 工具栏 / Web Store 图标
 ├── config.yaml               # 默认配置
 └── Makefile
 ```
