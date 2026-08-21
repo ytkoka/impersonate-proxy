@@ -1,6 +1,6 @@
 # impersonate-proxy
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
 
 **[English](README.md)** | **日本語** | [简体中文](README.zh-CN.md)
 
@@ -484,3 +484,6 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - [uTLS](https://github.com/refraction-networking/utls) — TLSフィンガープリントのカスタマイズ
 - [tls.peet.ws](https://tls.peet.ws) — 例で使用しているフィンガープリント検査API
 - [JA4+](https://github.com/FoxIO-LLC/ja4) — フィンガープリント標準の参考資料
+
+## License
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)

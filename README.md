@@ -1,6 +1,6 @@
 # impersonate-proxy
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
 
 **English** | [日本語](README.ja.md) | [简体中文](README.zh-CN.md)
 
@@ -351,8 +351,7 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 
 **Installation:**
 Chrome Extension
-Available on the Chrome Web Store:
-https://chromewebstore.google.com/detail/impersonate-proxy/maodbpimhodidbmbiknomgjfhaondncn
+Available on the Chrome Web Store: [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/maodbpimhodidbmbiknomgjfhaondncn)
 
 
 **Controls:**
@@ -484,3 +483,6 @@ Using this tool against systems without authorization may violate applicable law
 - [uTLS](https://github.com/refraction-networking/utls) — TLS fingerprint customization
 - [tls.peet.ws](https://tls.peet.ws) — Fingerprint inspection API used in examples
 - [JA4+](https://github.com/FoxIO-LLC/ja4) — Fingerprinting standard reference
+
+## License
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
