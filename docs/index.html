@@ -94,12 +94,49 @@
   .section-desc{ color: var(--text-dim); max-width: 620px; margin: 0 auto; font-size: 15.5px; }
 
   /* diagram */
-  .diagram{
+  .flow{
+    display:flex; align-items:center; justify-content:center; gap: 0;
     background: var(--code-bg); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 28px; overflow-x: auto;
+    border-radius: var(--radius); padding: 32px 24px; overflow-x: auto;
   }
-  .diagram pre{ margin:0; font-size: 13px; color: var(--text-dim); line-height: 1.55; }
-  .diagram .accent{ color: var(--accent-strong); }
+  .flow-node{
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px; flex: 0 0 auto;
+  }
+  .flow-node-title{ font-size: 14px; font-weight: 700; color: var(--text); white-space: nowrap; }
+  .flow-node-title.accent{ color: var(--accent-strong); }
+  .flow-node-sub{ font-size: 12px; color: var(--text-faint); margin-top: 4px; white-space: nowrap; }
+  .flow-client, .flow-target{ text-align:center; }
+  .flow-target .flow-node-title{ white-space: normal; max-width: 130px; }
+  .flow-proxy{ padding: 18px 20px; }
+  .proxy-layers{ display:flex; flex-direction:column; gap: 8px; margin-top: 12px; }
+  .proxy-layer{
+    display:flex; flex-direction:column; gap: 2px;
+    background: var(--code-bg); border: 1px solid var(--border-soft);
+    border-radius: 7px; padding: 8px 10px;
+  }
+  .proxy-layer-name{ font-size: 12.5px; font-weight: 600; color: var(--accent-strong); }
+  .proxy-layer-desc{ font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
+  .flow-link{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    flex: 0 0 auto; padding: 0 14px; align-self: center; margin-top: -8px;
+  }
+  .flow-link-label{ font-size: 10.5px; color: var(--text-faint); white-space: nowrap; margin-bottom: 6px; }
+  .flow-link-arrow{ position: relative; width: 56px; height: 1px; background: var(--border); display:block; }
+  .flow-link-arrow::after{
+    content: ""; position: absolute; right: -1px; top: 50%; transform: translateY(-50%);
+    border: 5px solid transparent; border-left-color: var(--border);
+  }
+  @media (max-width: 760px){
+    .flow{ flex-direction: column; padding: 24px 18px; }
+    .flow-link{ flex-direction: row; padding: 10px 0; margin-top: 0; }
+    .flow-link-label{ margin-bottom: 0; margin-right: 10px; writing-mode: horizontal-tb; }
+    .flow-link-arrow{ width: 1px; height: 32px; }
+    .flow-link-arrow::after{ right: 50%; top: auto; bottom: -1px; transform: translateX(50%) rotate(90deg); }
+    .flow-link{ flex-direction: column; }
+    .flow-link-label{ margin-right: 0; margin-bottom: 6px; }
+    .proxy-layer-desc{ white-space: normal; }
+  }
   .layer-table{ width:100%; border-collapse: collapse; margin-top: 24px; font-size: 14px; }
   .layer-table th, .layer-table td{ text-align:left; padding: 10px 14px; border-bottom: 1px solid var(--border-soft); }
   .layer-table th{ color: var(--text-faint); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -219,23 +256,43 @@
       <h2>One proxy, three tunable layers</h2>
       <p class="section-desc">Traffic tunnels through the proxy via HTTP CONNECT. The proxy terminates TLS with its own MITM CA, then re-establishes an outbound connection to the target using a custom TLS ClientHello and HTTP/2 framing.</p>
     </div>
-    <div class="diagram">
-<pre>curl / browser / Playwright
-        │  HTTP CONNECT (to proxy)
-        ▼
-┌─────────────────────────────────────────┐
-│            <span class="accent">impersonate-proxy</span>            │
-│                                         │
-│  MITM TLS ◄──────────────► uTLS         │
-│  (our CA cert)          (custom JA3/4)  │
-│                                         │
-│  Header rewriter (UA, order, add/del)   │
-│  HTTP/2 framer  (SETTINGS, WINDOW_UPDATE│
-│                  pseudo-header order)   │
-└─────────────────────────────────────────┘
-        │  Custom TLS ClientHello + HTTP/2
-        ▼
-   Target server / WAF</pre>
+    <div class="flow">
+      <div class="flow-node flow-client">
+        <div class="flow-node-title">Client</div>
+        <div class="flow-node-sub">curl / browser / Playwright</div>
+      </div>
+
+      <div class="flow-link">
+        <span class="flow-link-label">HTTP CONNECT</span>
+        <span class="flow-link-arrow" aria-hidden="true"></span>
+      </div>
+
+      <div class="flow-node flow-proxy">
+        <div class="flow-node-title accent">impersonate-proxy</div>
+        <div class="proxy-layers">
+          <div class="proxy-layer">
+            <span class="proxy-layer-name">MITM TLS</span>
+            <span class="proxy-layer-desc">our CA cert ◄──► uTLS (custom JA3/4)</span>
+          </div>
+          <div class="proxy-layer">
+            <span class="proxy-layer-name">Header rewriter</span>
+            <span class="proxy-layer-desc">UA, order, add/del</span>
+          </div>
+          <div class="proxy-layer">
+            <span class="proxy-layer-name">HTTP/2 framer</span>
+            <span class="proxy-layer-desc">SETTINGS, WINDOW_UPDATE, pseudo-headers</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-link">
+        <span class="flow-link-label">Custom TLS ClientHello + HTTP/2</span>
+        <span class="flow-link-arrow" aria-hidden="true"></span>
+      </div>
+
+      <div class="flow-node flow-target">
+        <div class="flow-node-title">Target server / WAF</div>
+      </div>
     </div>
     <table class="layer-table">
       <tr><th>Layer</th><th>What you can control</th></tr>
