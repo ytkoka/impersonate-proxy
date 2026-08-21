@@ -71,6 +71,10 @@ go version
 
 > **ARM64(Raspberry Pi、AWS Gravitonなど):** ダウンロードURL内の `linux-amd64` を `linux-arm64` に置き換えてください。
 
+### Docker(Goツールチェーン不要)
+
+Goをインストールせず使い捨て環境で試したい場合は、[Docker](#docker)セクションへ直接進んでください。
+
 ## セットアップ
 
 ### 1. クローンとビルド
@@ -124,6 +128,74 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/ca.crt"
 ```
 
 **Firefox**: 設定 → プライバシーとセキュリティ → 証明書を表示 → 認証局 → `ca.crt` をインポート
+
+## Docker
+
+コンテナ内でプロキシを実行できます。ローカルにGo/Makeをインストールする必要はありません。
+
+### 1. プロキシを起動する
+
+```bash
+git clone https://github.com/ytkoka/impersonate-proxy.git
+cd impersonate-proxy
+docker compose up -d
+```
+
+イメージをローカルでビルドしてコンテナを起動します。初回起動時にMITM CAが生成され、以下のように出力されます:
+
+```
+impersonate-proxy  | generated CA certificate → /data/ca.crt (add to OS trust store to avoid cert errors)
+impersonate-proxy  | listening on 0.0.0.0:8080  preset=chrome
+```
+
+クローンせずビルド済みイメージを直接使う場合:
+
+```bash
+docker run -d --name impersonate-proxy \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v "$(pwd)/config.docker.yaml:/config.yaml:ro" \
+  -v "$(pwd)/data:/data" \
+  ghcr.io/ytkoka/impersonate-proxy:latest
+```
+
+`docker-compose.yml` は両ポートとも `127.0.0.1` にのみ公開します — ネイティブインストール時と同じループバック限定の露出範囲です(管理APIは無認証のため、独自のアクセス制御を追加しない限り `0.0.0.0` には変更しないでください)。
+
+### 2. CA証明書を信頼する
+
+CAはコンテナ内で生成されますが、ボリュームマウント経由でホストの `./data/ca.crt` と `./data/ca.key` に永続化されるため、コンテナの再起動・再作成をまたいで保持されます。上記の[ネイティブセットアップ](#3-ca証明書を信頼する)と同じ手順で、`./ca.crt` の代わりに `./data/ca.crt` を指定してください:
+
+```bash
+# curl
+curl --proxy http://127.0.0.1:8080 --cacert ./data/ca.crt https://tls.peet.ws/api/all
+
+# macOSシステムキーチェーン
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ./data/ca.crt
+```
+
+### 3. 設定する
+
+`config.yaml` ではなく `config.docker.yaml`(Docker用)を編集し、再起動してください:
+
+```bash
+docker compose restart
+```
+
+`config.docker.yaml` は `config.yaml` とほぼ同一ですが、`listen`/`mgmt_listen` が `0.0.0.0` になっている点(Dockerのポート公開がプロセスに到達するために必須 — コンテナ自身の `127.0.0.1` はホストから到達できないため)と、`ca_cert`/`ca_key` が永続化ボリュームの `/data` 配下を指している点が異なります。指定可能な全項目は下記の[設定](#設定)を参照してください。
+
+### Makefileショートカット
+
+| ターゲット | 説明 |
+|--------|-------------|
+| `make docker-build` | `docker compose build` でイメージをビルド |
+| `make docker-run` | ビルドしてバックグラウンドで起動 |
+| `make docker-stop` | コンテナを停止・削除 |
+
+### 停止・クリーンアップ
+
+```bash
+docker compose down          # コンテナを停止
+rm -rf data                  # 永続化したCAも削除する場合(削除後は再度信頼設定が必要)
+```
 
 ## 設定
 
@@ -442,6 +514,9 @@ impersonate-proxy/
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # ツールバー / Web Store用アイコン
 ├── config.yaml               # デフォルト設定
+├── config.docker.yaml        # docker-compose.ymlが使用する設定
+├── Dockerfile
+├── docker-compose.yml
 └── Makefile
 ```
 
@@ -453,6 +528,9 @@ impersonate-proxy/
 | `make run` | ビルドし、既存プロセスを終了させてから起動 |
 | `make trust-ca` | `ca.crt` をmacOSシステムキーチェーンに追加(sudoが必要) |
 | `make clean` | バイナリ、`ca.crt`、`ca.key` を削除 |
+| `make docker-build` | Dockerイメージをビルド([Docker](#docker)参照) |
+| `make docker-run` | ビルドしてバックグラウンドで起動 |
+| `make docker-stop` | コンテナを停止・削除 |
 
 ## クリーンアップ
 

@@ -71,6 +71,10 @@ go version
 
 > **ARM64 (Raspberry Pi, AWS Graviton, etc.):** replace `linux-amd64` with `linux-arm64` in the download URL.
 
+### Docker (no Go toolchain needed)
+
+Prefer a disposable environment instead of installing Go? Skip straight to [Docker](#docker).
+
 ## Setup
 
 ### 1. Clone and build
@@ -124,6 +128,74 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/ca.crt"
 ```
 
 **Firefox**: Preferences → Privacy & Security → View Certificates → Authorities → Import `ca.crt`
+
+## Docker
+
+Run the proxy in a container — no local Go/Make install required.
+
+### 1. Start the proxy
+
+```bash
+git clone https://github.com/ytkoka/impersonate-proxy.git
+cd impersonate-proxy
+docker compose up -d
+```
+
+This builds the image locally and starts the container. On first run it generates the MITM CA and prints:
+
+```
+impersonate-proxy  | generated CA certificate → /data/ca.crt (add to OS trust store to avoid cert errors)
+impersonate-proxy  | listening on 0.0.0.0:8080  preset=chrome
+```
+
+Or, to run the prebuilt image directly without cloning:
+
+```bash
+docker run -d --name impersonate-proxy \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v "$(pwd)/config.docker.yaml:/config.yaml:ro" \
+  -v "$(pwd)/data:/data" \
+  ghcr.io/ytkoka/impersonate-proxy:latest
+```
+
+`docker-compose.yml` publishes both ports to `127.0.0.1` only — same loopback-only exposure as a native install (the management API has no authentication, so don't change this to `0.0.0.0` without adding your own access control).
+
+### 2. Trust the CA certificate
+
+The CA is generated inside the container but persisted to `./data/ca.crt` and `./data/ca.key` on the host via the bind-mounted volume, so it survives container restarts/rebuilds. Trust it exactly as in the [native setup](#3-trust-the-ca-certificate) above, just pointing at `./data/ca.crt` instead of `./ca.crt`:
+
+```bash
+# curl
+curl --proxy http://127.0.0.1:8080 --cacert ./data/ca.crt https://tls.peet.ws/api/all
+
+# macOS system keychain
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ./data/ca.crt
+```
+
+### 3. Configure
+
+Edit `config.docker.yaml` (not `config.yaml` — that file is for the native install) and restart:
+
+```bash
+docker compose restart
+```
+
+`config.docker.yaml` is identical to `config.yaml` except `listen`/`mgmt_listen` are `0.0.0.0` (required for Docker's port publishing to reach the process at all — the container's own `127.0.0.1` is unreachable from the host) and `ca_cert`/`ca_key` point at `/data`, the persisted volume. See [Configuration](#configuration) below for all available fields.
+
+### Makefile shortcuts
+
+| Target | Description |
+|--------|-------------|
+| `make docker-build` | Build the image via `docker compose build` |
+| `make docker-run` | Build and start in the background |
+| `make docker-stop` | Stop and remove the container |
+
+### Stop / clean up
+
+```bash
+docker compose down          # stop the container
+rm -rf data                  # also remove the persisted CA (re-trust required after)
+```
 
 ## Configuration
 
@@ -442,6 +514,9 @@ impersonate-proxy/
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # Toolbar / Web Store icons
 ├── config.yaml               # Default configuration
+├── config.docker.yaml        # Configuration used by docker-compose.yml
+├── Dockerfile
+├── docker-compose.yml
 └── Makefile
 ```
 
@@ -453,6 +528,9 @@ impersonate-proxy/
 | `make run` | Build, kill any existing instance, and start |
 | `make trust-ca` | Add `ca.crt` to the macOS system keychain (requires sudo) |
 | `make clean` | Remove the binary, `ca.crt`, and `ca.key` |
+| `make docker-build` | Build the Docker image ([see Docker](#docker)) |
+| `make docker-run` | Build and start the container in the background |
+| `make docker-stop` | Stop and remove the container |
 
 ## Cleanup
 

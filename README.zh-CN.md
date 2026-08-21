@@ -71,6 +71,10 @@ go version
 
 > **ARM64(Raspberry Pi、AWS Graviton 等):** 将下载链接中的 `linux-amd64` 替换为 `linux-arm64`。
 
+### Docker(无需 Go 工具链)
+
+想用一次性环境而不安装 Go?直接跳到 [Docker](#docker) 章节。
+
 ## 安装配置
 
 ### 1. 克隆并构建
@@ -124,6 +128,74 @@ export NODE_EXTRA_CA_CERTS="$(pwd)/ca.crt"
 ```
 
 **Firefox**: 设置 → 隐私与安全 → 查看证书 → 证书颁发机构 → 导入 `ca.crt`
+
+## Docker
+
+在容器中运行代理——无需在本地安装 Go/Make。
+
+### 1. 启动代理
+
+```bash
+git clone https://github.com/ytkoka/impersonate-proxy.git
+cd impersonate-proxy
+docker compose up -d
+```
+
+该命令会在本地构建镜像并启动容器。首次运行时会生成 MITM CA,并输出:
+
+```
+impersonate-proxy  | generated CA certificate → /data/ca.crt (add to OS trust store to avoid cert errors)
+impersonate-proxy  | listening on 0.0.0.0:8080  preset=chrome
+```
+
+或者不克隆仓库,直接运行预构建镜像:
+
+```bash
+docker run -d --name impersonate-proxy \
+  -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -v "$(pwd)/config.docker.yaml:/config.yaml:ro" \
+  -v "$(pwd)/data:/data" \
+  ghcr.io/ytkoka/impersonate-proxy:latest
+```
+
+`docker-compose.yml` 仅将两个端口发布到 `127.0.0.1`——与原生安装相同的仅回环暴露范围(管理 API 没有身份验证,因此除非你自行添加访问控制,否则不要将其改为 `0.0.0.0`)。
+
+### 2. 信任 CA 证书
+
+CA 在容器内生成,但通过挂载的卷持久化到主机的 `./data/ca.crt` 和 `./data/ca.key`,因此在容器重启/重建后依然保留。按照上面[原生安装](#3-信任-ca-证书)相同的步骤信任它,只需将 `./ca.crt` 替换为 `./data/ca.crt`:
+
+```bash
+# curl
+curl --proxy http://127.0.0.1:8080 --cacert ./data/ca.crt https://tls.peet.ws/api/all
+
+# macOS 系统钥匙串
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ./data/ca.crt
+```
+
+### 3. 配置
+
+编辑 `config.docker.yaml`(而不是 `config.yaml`——那是原生安装使用的文件),然后重启:
+
+```bash
+docker compose restart
+```
+
+`config.docker.yaml` 与 `config.yaml` 基本相同,区别在于 `listen`/`mgmt_listen` 为 `0.0.0.0`(这是 Docker 端口发布能够到达进程的必要条件——容器自身的 `127.0.0.1` 无法从主机访问),以及 `ca_cert`/`ca_key` 指向持久化卷 `/data`。所有可用字段参见下方的[配置](#配置)。
+
+### Makefile 快捷方式
+
+| 目标 | 说明 |
+|--------|-------------|
+| `make docker-build` | 通过 `docker compose build` 构建镜像 |
+| `make docker-run` | 构建并在后台启动 |
+| `make docker-stop` | 停止并删除容器 |
+
+### 停止 / 清理
+
+```bash
+docker compose down          # 停止容器
+rm -rf data                  # 同时删除持久化的 CA(删除后需要重新信任)
+```
 
 ## 配置
 
@@ -442,6 +514,9 @@ impersonate-proxy/
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # 工具栏 / Web Store 图标
 ├── config.yaml               # 默认配置
+├── config.docker.yaml        # docker-compose.yml 使用的配置
+├── Dockerfile
+├── docker-compose.yml
 └── Makefile
 ```
 
@@ -453,6 +528,9 @@ impersonate-proxy/
 | `make run` | 构建、结束已有实例并启动 |
 | `make trust-ca` | 将 `ca.crt` 添加到 macOS 系统钥匙串(需要 sudo) |
 | `make clean` | 删除二进制文件、`ca.crt` 和 `ca.key` |
+| `make docker-build` | 构建 Docker 镜像(参见 [Docker](#docker)) |
+| `make docker-run` | 构建并在后台启动 |
+| `make docker-stop` | 停止并删除容器 |
 
 ## 清理
 

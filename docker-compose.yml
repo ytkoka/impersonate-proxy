@@ -1,0 +1,15 @@
+services:
+  impersonate-proxy:
+    build: .
+    image: ghcr.io/ytkoka/impersonate-proxy:latest
+    container_name: impersonate-proxy
+    restart: unless-stopped
+    # Published to 127.0.0.1 only, matching the native install's loopback-only
+    # default (mgmt API has no authentication — see mgmt/server.go).
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./config.docker.yaml:/config.yaml:ro
+      - ./data:/data
+    command: ["-config", "/config.yaml"]

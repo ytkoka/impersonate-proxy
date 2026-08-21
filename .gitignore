@@ -2,3 +2,4 @@ impersonate-proxy
 ca.crt
 ca.key
 .DS_Store
+/data/
