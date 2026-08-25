@@ -395,6 +395,8 @@ tls:
 | `50` | signature_algorithms_cert | Chrome-like defaults |
 | `51` | key_share | Key shares for X25519 and P256 (from `curves`) |
 | `17513` | application_settings (ALPS) | Advertises `h2` |
+| `17613` | application_settings (ALPS, new codepoint) | Advertises `h2`; sent by Chrome 133+ instead of `17513` |
+| `65037` | encrypted_client_hello (ECH) | GREASE ECH payload (BoringSSL-style) |
 | `65281` | renegotiation_info | |
 | other | GenericExtension | Sent with empty payload |
 

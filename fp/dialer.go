@@ -176,6 +176,10 @@ func buildExtension(id uint16, curves []utls.CurveID, versions []uint16) utls.TL
 		return &utls.KeyShareExtension{KeyShares: keySharesForCurves(curves)}
 	case 17513:
 		return &utls.ApplicationSettingsExtension{SupportedProtocols: []string{"h2"}}
+	case 17613:
+		return &utls.ApplicationSettingsExtensionNew{SupportedProtocols: []string{"h2"}}
+	case 65037:
+		return utls.BoringGREASEECH()
 	case 65281:
 		return &utls.RenegotiationInfoExtension{Renegotiation: utls.RenegotiateOnceAsClient}
 	default:

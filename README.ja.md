@@ -395,6 +395,8 @@ tls:
 | `50` | signature_algorithms_cert | Chrome相当のデフォルト |
 | `51` | key_share | `curves` に基づくX25519・P256のキーシェア |
 | `17513` | application_settings (ALPS) | `h2` をアドバタイズ |
+| `17613` | application_settings (ALPS, 新コードポイント) | `h2` をアドバタイズ。Chrome 133以降は`17513`の代わりにこちらを送信 |
+| `65037` | encrypted_client_hello (ECH) | GREASE ECHペイロード(BoringSSL方式) |
 | `65281` | renegotiation_info | |
 | その他 | GenericExtension | 空ペイロードで送信 |
 

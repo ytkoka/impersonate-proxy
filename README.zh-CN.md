@@ -395,6 +395,8 @@ tls:
 | `50` | signature_algorithms_cert | 类 Chrome 默认值 |
 | `51` | key_share | 基于 `curves` 的 X25519、P256 密钥共享 |
 | `17513` | application_settings (ALPS) | 通告 `h2` |
+| `17613` | application_settings (ALPS,新码点) | 通告 `h2`;Chrome 133+ 使用此码点代替 `17513` |
+| `65037` | encrypted_client_hello (ECH) | GREASE ECH 负载(BoringSSL 风格) |
 | `65281` | renegotiation_info | |
 | 其他 | GenericExtension | 以空负载发送 |
 
