@@ -78,6 +78,24 @@
 
   <div class="divider"></div>
 
+  <div class="section">
+    <div class="toggle-row">
+      <span class="toggle-label">Upstream proxy</span>
+      <label class="switch">
+        <input type="checkbox" id="upstreamEnabled">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="field" style="margin-top: 10px;">
+      <label for="upstreamSelect">Select <span class="hint">changes the real egress IP</span></label>
+      <select id="upstreamSelect">
+        <option value="">(no proxies configured)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
   <div class="footer">
     <div class="status-row">
       <span id="statusDot" class="dot dot-unknown"></span>

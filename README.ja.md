@@ -268,17 +268,20 @@ http2:
 
 | エンドポイント | メソッド | 説明 |
 |---|---|---|
-| `/api/config` | `GET` | 現在の設定をJSONで返す(現在の `custom_hello` を含む) |
-| `/api/config` | `POST` | TLSプリセット(完全にカスタムな `custom_hello` を含む)、送信元IP、User-Agentを更新 |
+| `/api/config` | `GET` | 現在の設定をJSONで返す(現在の `custom_hello` とアップストリームの状態を含む) |
+| `/api/config` | `POST` | TLSプリセット / `custom_hello` / 送信元IP / User-Agent / アップストリームの有効化・選択を部分的に更新する — 指定しなかったフィールドは変更されない |
+| `/api/upstream` | `GET` | アップストリームの状態を返す: `enabled`、`select`、設定済みプロキシの**名前**(URLや認証情報は含まない)、IPヘッダー抑制が有効かどうか |
+
+`POST /api/config` は本当の意味での部分更新です。変更したいフィールドだけを送れば、TLSプリセットやアップストリームの選択を含め、それ以外はそのまま維持されます。
 
 ```bash
 # 現在の設定を読む
 curl http://127.0.0.1:8081/api/config
 
-# Firefoxのフィンガープリントに切り替え、偽装IPを設定
+# Firefoxのフィンガープリントに切り替え、偽装IPを設定(他のフィールドは変更しない)
 curl -s -X POST http://127.0.0.1:8081/api/config \
   -H "Content-Type: application/json" \
-  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1","user_agent":""}'
+  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1"}'
 
 # 実行時に任意のJA3/JA4フィンガープリントへ切り替える — config.yamlのcustom_helloブロックと
 # 同じフィールドをJSONとして送信する(後述の「カスタムTLSフィンガープリント」を参照)
@@ -295,6 +298,15 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
     "client_ip": "",
     "user_agent": ""
   }'
+
+# アップストリームプロキシを有効化し、名前で選択する — TLSプリセット・送信元IP・
+# User-Agentはそのまま維持される
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+
+# 現在のアップストリームの状態を読む
+curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 変更は新規接続から即座に反映されます。APIを完全に無効化するには `mgmt_listen: ""` を設定してください。
@@ -402,6 +414,45 @@ tls:
 
 > **実行時の変更:** `preset: "custom"` は `config.yaml` に限定されません。管理API(前述の「管理API」セクションを参照。`POST /api/config` に `custom_hello` オブジェクトを送信)や、Chrome拡張機能のTLS Presetドロップダウンからも、プロキシを再起動せずに実行時に切り替えられます。
 
+### アップストリームプロキシ
+
+デフォルトではプロキシはターゲットに直接接続するため、`X-Forwarded-For` / `True-Client-IP` の偽装(前述)はリクエストが「主張する」内容を変えるだけで、TCP接続の実際の送信元IPは自分のままです。`upstream.enabled: true` を設定すると、ターゲットへの接続をまずSOCKS5またはHTTP CONNECTプロキシ経由にするため、**実際のegress IP**も変わります。これにより、偽装可能なヘッダーを無視して接続元IP自体を見るWAFルールをテストしたり、「フィンガープリントは正常だがIPが悪い」場合と「IPは綺麗だがフィンガープリントが変」な場合を切り分けたりできます。
+
+対応しているのはトンネルを張れるスキーム(`socks5`、`socks5h`、`http`(CONNECT))のみです。どちらも生のTCPトンネルを返し、それをプロキシ自身がuTLSでラップするため、このツールが制御しようとしているClientHelloとHTTP/2フレーミングは一切変更されずにそのまま通過します。`https://`(TLSを終端するタイプ)のアップストリームは**サポートされていません**。TLSを自分で復号・再確立してしまい、uTLSのフィンガープリントが自分のものに置き換わってしまうためです。
+
+```yaml
+upstream:
+  enabled: false                         # デフォルトはオフ。再起動なしで実行時に切り替え可能
+  select: "residential_us"               # プロキシ名 | "rotate" | "random" | ""(先頭のプロキシ)
+  dial_timeout_ms: 15000
+  suppress_ip_headers_when_active: true  # アップストリーム有効時はXFF/True-Client-IPを送らない — 綺麗なIPが偽装ヘッダーを名乗る矛盾を防ぐ
+  proxies:
+    - name: residential_us
+      url: "socks5://user:pass@gw.provider.com:1080"   # ホスト名はプロキシ側で解決される(SOCKS5h相当の挙動)。ローカルでは解決しない
+    - name: datacenter
+      url: "http://user:pass@dc.provider.com:8080"
+    - name: tor
+      url: "socks5://127.0.0.1:9050"                   # 無料で試せる: brew install tor && brew services start tor
+```
+
+TLSプリセットと同様に、実行時にもプロキシを切り替えられます。Chrome拡張機能の「Upstream proxy」トグル・ドロップダウンから([現時点ではパッケージ化されていない/デベロッパーモード版のみ対応](#chrome拡張機能))、または:
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+```
+
+`GET /api/upstream` とChrome拡張機能のドロップダウンには、常にプロキシの**名前**しか表示されません。URLや認証情報がプロキシプロセスの外に出ることはありません。
+
+**実際に効いているかの確認方法:** アップストリームを有効化する前後で実際のegress IPを確認し(例: `curl --proxy http://127.0.0.1:8080 https://ifconfig.me`)、あわせて[tls.peet.ws](https://tls.peet.ws)でフィンガープリントに影響がないことも確認してください。ネットワーク経路だけが変わっているので、`upstream.enabled` のオン・オフに関わらずJA3/JA4とHTTP/2フィンガープリントは一致するはずです。
+
+> **注意点:** ブラウザは(curlと違って)オリジンごとに接続を保持・再利用します。`select` を切り替えたり `enabled` をトグルしたりした直後に、すでに接続済みのタブをただリロードしただけだと、ブラウザが新しい接続を張らずに既存の接続を再利用してしまうことがあります。その場合、実際に新規接続が発生するまで変更が反映されているように見えません。切り替えが効いていないように見える場合は、新しいシークレットウィンドウで試すか、`chrome://net-internals/#sockets` でソケットプールをフラッシュしてください。
+
+> **接続を受け付けたからといって、そのプロキシを信用しないでください。** SOCKS5/CONNECTのハンドシェイクが成功したからといって、そのプロキシが正直に動いているとは限りません。悪意のあるプロキシは生のバイト列をトンネリングする代わりに、自分自身でTLSを終端し、自分の証明書を返すことができます。そうなると、本来エンドツーエンドで暗号化されているはずの通信を、まるごと読まれる(あるいは改ざんされる)ことになります。自分で用意したのではないプロキシを信頼する前には、必ずこれを確認してください: そのプロキシ経由で `https://tls.peet.ws` にアクセスし、(a)証明書エラーが出ないこと、(b) `upstream.enabled: false` のときと同じJA4になることを確認します。証明書エラーが出たり、JA4が変わっていたりする場合、その「プロキシ」はトンネリングではなく通信を傍受しています — そこには何も流さないでください。
+
+> **Docker:** ホストマシンを指すアップストリームURL(例: ローカルのTorインスタンス `socks5://127.0.0.1:9050`)は、コンテナ内ではそのままでは名前解決できません。ここでの `127.0.0.1` はホストではなくコンテナ自身のループバックだからです。代わりに `socks5://host.docker.internal:9050`(Docker DesktopのMac/Windows)や、コンテナのデフォルトゲートウェイIP(Linux)を使ってください。
+
 ## 使い方
 
 ### プロキシを起動する
@@ -448,10 +499,13 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | Cipher Suites / Curves / TLS Versions / Extensions | **Custom (JA3/JA4)** 選択時に表示 — `config.yaml` の `custom_hello` と同じフィールドで、YAMLを編集したりプロキシを再起動したりせずに任意のJA3/JA4フィンガープリントを指定できる |
 | Client IP | 全リクエストに `X-Forwarded-For` と `True-Client-IP` を設定 |
 | User-Agent | HTTPの `User-Agent` ヘッダーを上書き |
+| Upstream proxy | アップストリームのSOCKS5/HTTP-CONNECTプロキシ経由のルーティングを有効化し、使用するプロキシ(または `rotate`/`random`)を選択する — [アップストリームプロキシ](#アップストリームプロキシ)を参照。**現時点ではパッケージ化されていない(デベロッパーモード)版のみ対応** — 下記の注記を参照 |
 | Applyボタン | 新しい設定を管理APIにPOSTする。即座に反映される |
 | APIフィールド | 管理APIのアドレス(デフォルト `http://127.0.0.1:8081`) |
 
 > **User-Agentの適用範囲:** この拡張機能が変更するのはHTTPの `User-Agent` **ヘッダー**のみです。JavaScriptの `navigator.userAgent` はChrome自体が制御しており、影響を受けません。両方を同時に偽装するには、プロキシ設定と併せてChromeを `--user-agent="..."` オプション付きで起動してください。
+
+> **Upstream proxyの操作は現時点ではデベロッパーモードのみ対応:** 上記の**方法B(パッケージ化されていない拡張機能を読み込む)**でインストールした場合のみ利用できます。Chrome Web Store版(方法A)はこの機能に対応するための更新を当面見送っているため、Web Store版を使っている場合は、公開されるまで管理APIを直接(curlや自作スクリプトなどで)操作してアップストリームの設定を変更してください。
 
 ### Playwright(Node.js)
 
@@ -511,14 +565,15 @@ impersonate-proxy/
 ├── fp/dialer.go              # uTLSダイアラー — TLSフィンガープリントのプリセット
 ├── h2fp/conn.go              # HTTP/2フレーマー — SETTINGS / WINDOW_UPDATE / 疑似ヘッダー制御
 ├── mitm/ca.go                # MITM CA: リーフ証明書の生成・キャッシュ・発行
+├── upstream/                 # アップストリームSOCKS5/HTTP-CONNECTプロキシ: マネージャー、ダイアラー、選択ロジック
 ├── proxy/proxy.go            # プロキシサーバー: CONNECT処理、プロトコル分岐、実行時設定
 ├── rewrite/headers.go        # HTTPヘッダー書き換え(UA、順序、追加/削除、IP偽装)
-├── mgmt/server.go            # 管理HTTP API(/api/config の GET + POST)
+├── mgmt/server.go            # 管理HTTP API(/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # ツールバーポップアップUI
 │   ├── popup.css
-│   ├── popup.js               # プロキシトグル + 管理APIクライアント
+│   ├── popup.js               # プロキシトグル + アップストリームトグル + 管理APIクライアント
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # ツールバー / Web Store用アイコン
 ├── config.yaml               # デフォルト設定
@@ -561,6 +616,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **チャンク転送のリクエストボディ**: `Transfer-Encoding: chunked` を伴うリクエストボディは現時点で正しく転送されません。
 - **QUIC / HTTP/3非対応**: 対象外です。
 - **User-Agent(HTTPヘッダーのみ)**: プロキシはHTTPの `User-Agent` ヘッダーを書き換えますが、JavaScriptの `navigator.userAgent` はブラウザが独自に設定するため影響を受けません。両方を同時に上書きするにはChromeの `--user-agent` 起動オプションを使用してください。
+- **アップストリームプロキシはTCPトンネルのみ対応**: `socks5` / `socks5h` / `http`(CONNECT)のアップストリームのみサポートしています。TLSを自分で終端するタイプのアップストリームはuTLSのClientHelloを壊してしまうため、起動時に拒否されます。[アップストリームプロキシ](#アップストリームプロキシ)を参照してください。
 
 ## 法的注意事項
 

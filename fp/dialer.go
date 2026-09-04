@@ -1,6 +1,7 @@
 package fp
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	utls "github.com/refraction-networking/utls"
 
 	"impersonate-proxy/config"
+	"impersonate-proxy/upstream"
 )
 
 var presets = map[string]utls.ClientHelloID{
@@ -64,10 +66,14 @@ func NewDialerFromConfig(cfg config.TLSConfig) (*Dialer, error) {
 	return NewDialer(cfg.Preset)
 }
 
-// Dial opens a TCP connection to addr, performs a uTLS handshake as host,
-// and returns the connection together with the negotiated ALPN protocol.
-func (d *Dialer) Dial(host, addr string) (*Conn, error) {
-	rawConn, err := net.Dial("tcp", addr)
+// Dial opens a TCP connection to addr via base (direct, or through an
+// upstream SOCKS5/HTTP-CONNECT proxy — see upstream.Manager.Current()),
+// performs a uTLS handshake as host, and returns the connection together
+// with the negotiated ALPN protocol. base only ever hands back a raw conn;
+// everything from here on (uTLS, and h2fp above it) is unaware of whether
+// an upstream proxy was involved.
+func (d *Dialer) Dial(ctx context.Context, base upstream.BaseDialer, host, addr string) (*Conn, error) {
+	rawConn, err := base.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
 	}

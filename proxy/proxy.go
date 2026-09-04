@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -16,22 +17,25 @@ import (
 	"impersonate-proxy/h2fp"
 	"impersonate-proxy/mitm"
 	"impersonate-proxy/rewrite"
+	"impersonate-proxy/upstream"
 )
 
 type Server struct {
-	cfg      *config.Config
-	ca       *mitm.CA
-	mu       sync.RWMutex
-	dialer   *fp.Dialer
-	rewriter *rewrite.Rewriter
+	cfg         *config.Config
+	ca          *mitm.CA
+	mu          sync.RWMutex
+	dialer      *fp.Dialer
+	rewriter    *rewrite.Rewriter
+	upstreamMgr *upstream.Manager // independent lifecycle: not rebuilt when TLS/HTTP settings change
 }
 
-func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer) *Server {
+func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer, upstreamMgr *upstream.Manager) *Server {
 	return &Server{
-		cfg:      cfg,
-		ca:       ca,
-		dialer:   dialer,
-		rewriter: rewrite.New(cfg.HTTP),
+		cfg:         cfg,
+		ca:          ca,
+		dialer:      dialer,
+		rewriter:    rewrite.New(cfg.HTTP, upstreamMgr),
+		upstreamMgr: upstreamMgr,
 	}
 }
 
@@ -58,32 +62,87 @@ func (s *Server) snap() connDeps {
 // GetActiveConfig returns the currently active mutable settings.
 func (s *Server) GetActiveConfig() config.ActiveConfig {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	tls := s.cfg.TLS
+	http := s.cfg.HTTP
+	listen := s.cfg.Listen
+	s.mu.RUnlock()
+
 	return config.ActiveConfig{
-		TLSPreset:   s.cfg.TLS.Preset,
-		CustomHello: s.cfg.TLS.CustomHello,
-		ClientIP:    s.cfg.HTTP.ClientIP,
-		UserAgent:   s.cfg.HTTP.UserAgent,
-		Listen:      s.cfg.Listen,
+		TLSPreset:   tls.Preset,
+		CustomHello: tls.CustomHello,
+		ClientIP:    http.ClientIP,
+		UserAgent:   http.UserAgent,
+		Listen:      listen,
+
+		UpstreamEnabled:           s.upstreamMgr.Enabled(),
+		UpstreamSelect:            s.upstreamMgr.Selection(),
+		UpstreamProxies:           s.upstreamMgr.List(),
+		UpstreamSuppressIPHeaders: s.upstreamMgr.SuppressIPHeaders(),
 	}
 }
 
-// Update atomically replaces the TLS dialer and HTTP rewriter with new settings.
-// tls.Preset == "custom" builds the ClientHello from tls.CustomHello, allowing
-// an arbitrary JA3/JA4 fingerprint instead of one of the named browser presets.
-// New connections pick up the change immediately; in-flight connections are unaffected.
-func (s *Server) Update(tls config.TLSConfig, clientIP, userAgent string) error {
-	d, err := fp.NewDialerFromConfig(tls)
-	if err != nil {
-		return err
+// UpdateConfig applies a partial update to the runtime-mutable settings. A
+// nil field in patch leaves that setting unchanged — this lets a caller
+// flip only upstream_enabled, say, via curl without having to know (and
+// resend) the current TLS preset or User-Agent.
+//
+// TLS preset / custom_hello and upstream enabled/select are independent
+// lifecycles: the TLS dialer is only rebuilt when TLSPreset or CustomHello
+// is present in the patch, and upstream changes go straight to
+// upstreamMgr (which has its own locking) without touching s.dialer at
+// all. New connections pick up every change immediately; in-flight
+// connections are unaffected.
+func (s *Server) UpdateConfig(patch config.ConfigPatch) error {
+	if patch.UpstreamSelect != nil {
+		// Validate before touching anything else so a bad upstream_select
+		// can't partially apply the rest of the patch.
+		if err := s.upstreamMgr.Select(*patch.UpstreamSelect); err != nil {
+			return err
+		}
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cfg.TLS = tls
-	s.cfg.HTTP.ClientIP = clientIP
-	s.cfg.HTTP.UserAgent = userAgent
-	s.dialer = d
-	s.rewriter = rewrite.New(s.cfg.HTTP)
+
+	newTLS := s.cfg.TLS
+	tlsChanged := false
+	if patch.TLSPreset != nil {
+		newTLS.Preset = *patch.TLSPreset
+		tlsChanged = true
+	}
+	if patch.CustomHello != nil {
+		newTLS.CustomHello = *patch.CustomHello
+		tlsChanged = true
+	}
+
+	var newDialer *fp.Dialer
+	if tlsChanged {
+		d, err := fp.NewDialerFromConfig(newTLS)
+		if err != nil {
+			return err
+		}
+		newDialer = d
+	}
+
+	newHTTP := s.cfg.HTTP
+	if patch.ClientIP != nil {
+		newHTTP.ClientIP = *patch.ClientIP
+	}
+	if patch.UserAgent != nil {
+		newHTTP.UserAgent = *patch.UserAgent
+	}
+
+	s.cfg.TLS = newTLS
+	s.cfg.HTTP = newHTTP
+	if newDialer != nil {
+		s.dialer = newDialer
+	}
+	s.rewriter = rewrite.New(s.cfg.HTTP, s.upstreamMgr)
+
+	if patch.UpstreamEnabled != nil {
+		s.upstreamMgr.SetEnabled(*patch.UpstreamEnabled)
+	}
+
 	return nil
 }
 
@@ -146,9 +205,12 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps conn
 		return
 	}
 
-	serverConn, err := deps.dialer.Dial(host, addr)
+	upstreamName, base := s.upstreamMgr.Current()
+	ctx, cancel := context.WithTimeout(context.Background(), s.upstreamMgr.DialTimeout())
+	serverConn, err := deps.dialer.Dial(ctx, base, host, addr)
+	cancel()
 	if err != nil {
-		log.Printf("dial(%s): %v", addr, err)
+		log.Printf("dial(%s) via upstream=%s: %v", addr, upstreamName, err)
 		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 		return
 	}
@@ -163,7 +225,7 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps conn
 	}
 	defer clientTLS.Close()
 
-	log.Printf("CONNECT %s  proto=%s preset=%s", addr, serverConn.Proto, deps.preset)
+	log.Printf("CONNECT %s  proto=%s preset=%s upstream=%s", addr, serverConn.Proto, deps.preset, upstreamName)
 
 	if serverConn.Proto == "h2" && deps.h2cfg.Enabled {
 		s.tunnelH2(clientTLS, serverConn, host, deps)
@@ -246,7 +308,10 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 		if !strings.Contains(host, ":") {
 			host += ":80"
 		}
-		serverConn, err := net.Dial("tcp", host)
+		_, base := s.upstreamMgr.Current()
+		ctx, cancel := context.WithTimeout(context.Background(), s.upstreamMgr.DialTimeout())
+		serverConn, err := base.DialContext(ctx, "tcp", host)
+		cancel()
 		if err != nil {
 			fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 			return

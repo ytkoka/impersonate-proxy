@@ -9,6 +9,7 @@ import (
 	"impersonate-proxy/mgmt"
 	"impersonate-proxy/mitm"
 	"impersonate-proxy/proxy"
+	"impersonate-proxy/upstream"
 )
 
 func main() {
@@ -30,7 +31,12 @@ func main() {
 		log.Fatalf("init dialer: %v", err)
 	}
 
-	srv := proxy.New(cfg, ca, dialer)
+	upstreamMgr, err := upstream.New(cfg.Upstream)
+	if err != nil {
+		log.Fatalf("init upstream: %v", err)
+	}
+
+	srv := proxy.New(cfg, ca, dialer, upstreamMgr)
 	if cfg.MgmtListen != "" {
 		go func() {
 			if err := mgmt.ListenAndServe(cfg.MgmtListen, srv); err != nil {

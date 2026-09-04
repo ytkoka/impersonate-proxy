@@ -14,6 +14,7 @@ COPY mgmt/ ./mgmt/
 COPY mitm/ ./mitm/
 COPY proxy/ ./proxy/
 COPY rewrite/ ./rewrite/
+COPY upstream/ ./upstream/
 
 ARG TARGETOS
 ARG TARGETARCH

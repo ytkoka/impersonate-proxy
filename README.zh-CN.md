@@ -268,17 +268,20 @@ http2:
 
 | 接口 | 方法 | 说明 |
 |---|---|---|
-| `/api/config` | `GET` | 以 JSON 返回当前设置(包含当前的 `custom_hello`) |
-| `/api/config` | `POST` | 更新 TLS 预设(包括完全自定义的 `custom_hello`)、源 IP 和 User-Agent |
+| `/api/config` | `GET` | 以 JSON 返回当前设置(包含当前的 `custom_hello` 和上游代理状态) |
+| `/api/config` | `POST` | 部分更新 TLS 预设 / `custom_hello` / 源 IP / User-Agent / 上游代理的启用与选择 — 未提供的字段保持不变 |
+| `/api/upstream` | `GET` | 返回上游代理状态: `enabled`、`select`、已配置代理的**名称**(绝不包含 URL/凭据)、以及 IP 头抑制是否生效 |
+
+`POST /api/config` 是真正的部分更新:只发送你想修改的字段,其余的——包括 TLS 预设和上游代理选择——都保持原样。
 
 ```bash
 # 读取当前设置
 curl http://127.0.0.1:8081/api/config
 
-# 切换为 Firefox 指纹并设置伪装 IP
+# 切换为 Firefox 指纹并设置伪装 IP(其他字段不受影响)
 curl -s -X POST http://127.0.0.1:8081/api/config \
   -H "Content-Type: application/json" \
-  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1","user_agent":""}'
+  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1"}'
 
 # 在运行时切换为任意 JA3/JA4 指纹 — 字段与 config.yaml 中的
 # custom_hello 块相同,以 JSON 形式发送(参见下方的“自定义 TLS 指纹”)
@@ -295,6 +298,14 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
     "client_ip": "",
     "user_agent": ""
   }'
+
+# 启用上游代理并按名称选择 — TLS 预设、源 IP、User-Agent 保持不变
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+
+# 读取当前上游代理状态
+curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 更改会立即对新连接生效。将 `mgmt_listen` 设置为空字符串(`""`)可完全禁用该 API。
@@ -402,6 +413,45 @@ tls:
 
 > **运行时更新:** `preset: "custom"` 并不局限于 `config.yaml`——也可以通过管理 API(见前面的“管理 API”一节,向 `POST /api/config` 发送 `custom_hello` 对象)或 Chrome 扩展的 TLS Preset 下拉菜单在运行时切换,无需重启代理。
 
+### 上游代理
+
+默认情况下代理直接连接目标,因此前面提到的 `X-Forwarded-For` / `True-Client-IP` 伪装只改变了请求“声称”的内容——TCP 连接的真实源 IP 仍然是你自己的。设置 `upstream.enabled: true` 后,到目标的连接会先经过一个 SOCKS5 或 HTTP CONNECT 代理,这样**真实的出口 IP** 也会改变。这样你就可以测试那些忽略可伪造请求头、直接查看连接源 IP 的 WAF 规则,并区分“指纹正常但 IP 不干净”和“IP 干净但指纹不对”这两种情况。
+
+只支持能够建立隧道的协议——`socks5`、`socks5h` 和 `http`(CONNECT)。这两者都会返回一条原始 TCP 隧道,再由代理自身用 uTLS 包装,因此本工具要控制的 ClientHello 和 HTTP/2 帧结构会完全不变地穿过隧道。**不支持** `https://`(会终止 TLS 的)上游代理:它会自行解密并重新建立 TLS,用它自己的指纹替换掉你的 uTLS 指纹。
+
+```yaml
+upstream:
+  enabled: false                         # 默认关闭;可在运行时切换,无需重启
+  select: "residential_us"               # 代理名称 | "rotate" | "random" | ""(第一个代理)
+  dial_timeout_ms: 15000
+  suppress_ip_headers_when_active: true  # 上游代理生效时不发送 XFF/True-Client-IP——避免"干净的 IP 却声称伪造的 IP"这种矛盾
+  proxies:
+    - name: residential_us
+      url: "socks5://user:pass@gw.provider.com:1080"   # 主机名由代理端解析(即 SOCKS5h 行为),本地绝不解析
+    - name: datacenter
+      url: "http://user:pass@dc.provider.com:8080"
+    - name: tor
+      url: "socks5://127.0.0.1:9050"                   # 可免费试用: brew install tor && brew services start tor
+```
+
+和 TLS 预设一样,也可以在运行时切换代理——通过 Chrome 扩展的"Upstream proxy"开关/下拉菜单([目前仅已解压/开发者模式版本支持](#chrome-扩展)),或者:
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+```
+
+`GET /api/upstream` 和 Chrome 扩展的下拉菜单只会显示代理的**名称**——URL 和凭据永远不会离开代理进程。
+
+**验证是否真的生效:** 在启用上游代理前后分别检查真实的出口 IP(例如 `curl --proxy http://127.0.0.1:8080 https://ifconfig.me`),并另外用 [tls.peet.ws](https://tls.peet.ws) 确认指纹未受影响——由于只是网络路径发生了变化,`upstream.enabled` 无论开启还是关闭,JA3/JA4 和 HTTP/2 指纹都应该保持一致。
+
+> **注意:** 浏览器(不同于 curl)会保留并复用每个源的连接。如果你切换了 `select`(或切换了 `enabled`)之后,只是刷新一个已经建立过连接的标签页,浏览器可能会直接复用已有连接而不是重新建立新连接——这样一来,改动要等到真正建立新连接时才会体现出来。如果切换后似乎没有生效,可以在新的隐身窗口中测试,或者在 `chrome://net-internals/#sockets` 中清空套接字池。
+
+> **不要因为一个代理接受了连接就信任它。** SOCKS5/CONNECT 握手成功并不能说明这个代理是诚实的——恶意代理完全可以自己终止你的 TLS 连接、返回它自己的证书,而不是老老实实地转发原始字节,这样一来,你以为端到端加密的通信其实被整个读取(甚至篡改)了。在信任任何非你自己搭建的代理之前,请务必这样检查:通过它访问 `https://tls.peet.ws`,确认 (a) 没有证书错误,并且 (b) JA4 与 `upstream.enabled: false` 时一致。只要出现证书错误或 JA4 发生变化,就说明这个"代理"是在拦截你的流量而不是转发它——不要让任何流量经过它。
+
+> **Docker:** 指向宿主机的上游代理 URL(例如宿主机上本地 Tor 实例 `socks5://127.0.0.1:9050`)在容器内无法照原样解析——这里的 `127.0.0.1` 是容器自己的回环地址,而不是宿主机的。请改用 `socks5://host.docker.internal:9050`(Mac/Windows 上的 Docker Desktop)或容器的默认网关 IP(Linux)。
+
 ## 使用方法
 
 ### 启动代理
@@ -448,10 +498,13 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | Cipher Suites / Curves / TLS Versions / Extensions | 选择 **Custom (JA3/JA4)** 时显示 — 字段与 `config.yaml` 中的 `custom_hello` 相同,无需编辑 YAML 或重启代理即可设置任意 JA3/JA4 指纹 |
 | Client IP | 为每个请求设置 `X-Forwarded-For` 和 `True-Client-IP` |
 | User-Agent | 覆盖 HTTP 的 `User-Agent` 请求头 |
+| Upstream proxy | 启用通过上游 SOCKS5/HTTP-CONNECT 代理路由,并选择使用哪一个(或 `rotate`/`random`)——参见[上游代理](#上游代理)。**目前仅支持已解压(开发者模式)版本**——见下方说明 |
 | Apply 按钮 | 将新设置 POST 到管理 API;立即生效 |
 | API 字段 | 管理 API 的地址(默认 `http://127.0.0.1:8081`) |
 
 > **User-Agent 的作用范围:** 该扩展只修改 HTTP 的 `User-Agent` **请求头**。JavaScript 的 `navigator.userAgent` 由 Chrome 自身控制,不受影响。若要同时伪装两者,请在启动 Chrome 时附加 `--user-agent="..."` 参数,并配合代理设置一起使用。
+
+> **上游代理的操作目前仅支持开发者模式:** 只有通过上面的**方式 B(加载已解压的扩展程序)**安装时才可用。Chrome 应用商店版本(方式 A)对应的更新暂时搁置,尚未支持此功能——在发布之前,如果你使用的是应用商店版本,请直接通过管理 API(curl 或自己的脚本)来控制上游代理设置。
 
 ### Playwright(Node.js)
 
@@ -511,14 +564,15 @@ impersonate-proxy/
 ├── fp/dialer.go              # uTLS dialer — TLS 指纹预设
 ├── h2fp/conn.go              # HTTP/2 帧处理器 — SETTINGS / WINDOW_UPDATE / 伪首部控制
 ├── mitm/ca.go                # MITM CA:生成、缓存并颁发叶子证书
+├── upstream/                 # 上游 SOCKS5/HTTP-CONNECT 代理:管理器、dialer、选择逻辑
 ├── proxy/proxy.go            # 代理服务器:CONNECT 处理、协议分支、运行时配置
 ├── rewrite/headers.go        # HTTP 请求头改写(UA、顺序、增删、IP 伪装)
-├── mgmt/server.go            # 管理 HTTP API(/api/config 的 GET + POST)
+├── mgmt/server.go            # 管理 HTTP API(/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # 工具栏弹出窗口 UI
 │   ├── popup.css
-│   ├── popup.js               # 代理开关 + 管理 API 客户端
+│   ├── popup.js               # 代理开关 + 上游代理开关 + 管理 API 客户端
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # 工具栏 / Web Store 图标
 ├── config.yaml               # 默认配置
@@ -561,6 +615,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **分块传输的请求体**:目前不支持带 `Transfer-Encoding: chunked` 的请求体。
 - **不支持 QUIC / HTTP/3**:超出本项目范围。
 - **User-Agent(仅 HTTP 请求头)**:代理会改写 HTTP 的 `User-Agent` 请求头,但 JavaScript 的 `navigator.userAgent` 由浏览器自行设置,不受影响。如需同时覆盖两者,请使用 Chrome 的 `--user-agent` 启动参数。
+- **上游代理仅支持 TCP 隧道**:只支持 `socks5` / `socks5h` / `http`(CONNECT)上游代理——会自行终止 TLS 的上游代理会破坏 uTLS ClientHello,因此在启动时会被拒绝。参见[上游代理](#上游代理)。
 
 ## 法律声明
 

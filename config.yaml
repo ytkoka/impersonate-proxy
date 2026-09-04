@@ -106,3 +106,22 @@ http2:
     - authority
     - scheme
     - path
+
+# Route target connections through an upstream SOCKS5 / HTTP CONNECT proxy
+# instead of dialing direct, so the actual egress IP changes (not just the
+# X-Forwarded-For / True-Client-IP headers). Only tunnel-capable schemes are
+# supported (socks5, socks5h, http) — an upstream that terminates TLS itself
+# would strip the uTLS ClientHello this whole proxy exists to control, so
+# that's intentionally not an option here.
+upstream:
+  enabled: false                         # startup default; toggle at runtime via mgmt API / Chrome extension
+  select: ""                             # proxy name | "rotate" | "random" | "" (first proxy below)
+  dial_timeout_ms: 15000
+  suppress_ip_headers_when_active: true  # while an upstream is active, skip XFF/True-Client-IP so real IP and headers don't contradict each other
+  proxies: []
+    # - name: residential_us
+    #   url: "socks5://user:pass@gw.provider.com:1080"   # remote DNS resolution (SOCKS5h behavior)
+    # - name: datacenter
+    #   url: "http://user:pass@dc.provider.com:8080"     # HTTP CONNECT
+    # - name: tor-local
+    #   url: "socks5://127.0.0.1:9050"                   # free to try: `brew install tor && brew services start tor`

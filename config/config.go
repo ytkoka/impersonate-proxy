@@ -7,13 +7,14 @@ import (
 )
 
 type Config struct {
-	Listen     string      `yaml:"listen"`
-	MgmtListen string      `yaml:"mgmt_listen"`
-	CACert     string      `yaml:"ca_cert"`
-	CAKey      string      `yaml:"ca_key"`
-	TLS        TLSConfig   `yaml:"tls"`
-	HTTP       HTTPConfig  `yaml:"http"`
-	HTTP2      HTTP2Config `yaml:"http2"`
+	Listen     string         `yaml:"listen"`
+	MgmtListen string         `yaml:"mgmt_listen"`
+	CACert     string         `yaml:"ca_cert"`
+	CAKey      string         `yaml:"ca_key"`
+	TLS        TLSConfig      `yaml:"tls"`
+	HTTP       HTTPConfig     `yaml:"http"`
+	HTTP2      HTTP2Config    `yaml:"http2"`
+	Upstream   UpstreamConfig `yaml:"upstream"`
 }
 
 // ActiveConfig holds the subset of Config that can be changed at runtime via the management API.
@@ -23,6 +24,44 @@ type ActiveConfig struct {
 	ClientIP    string      `json:"client_ip"`
 	UserAgent   string      `json:"user_agent"`
 	Listen      string      `json:"listen"`
+
+	UpstreamEnabled           bool     `json:"upstream_enabled"`
+	UpstreamSelect            string   `json:"upstream_select"`
+	UpstreamProxies           []string `json:"upstream_proxies"` // names only — never URLs/credentials
+	UpstreamSuppressIPHeaders bool     `json:"upstream_suppress_ip_headers"`
+}
+
+// ConfigPatch is a partial update to the runtime-mutable settings, as decoded
+// from a POST /api/config body. A nil field means "leave this setting
+// unchanged" — this is why every field is a pointer rather than a plain
+// value: JSON can't otherwise distinguish "field omitted" from "field sent
+// as its zero value" (false / "" / etc.).
+type ConfigPatch struct {
+	TLSPreset   *string      `json:"tls_preset"`
+	CustomHello *CustomHello `json:"custom_hello"`
+	ClientIP    *string      `json:"client_ip"`
+	UserAgent   *string      `json:"user_agent"`
+
+	UpstreamEnabled *bool   `json:"upstream_enabled"`
+	UpstreamSelect  *string `json:"upstream_select"`
+}
+
+// UpstreamProxy is one named upstream proxy entry.
+type UpstreamProxy struct {
+	Name string `yaml:"name"`
+	URL  string `yaml:"url"` // e.g. socks5://user:pass@host:port or http://user:pass@host:port
+}
+
+// UpstreamConfig controls routing outbound (proxy → target) connections
+// through an upstream SOCKS5 or HTTP CONNECT proxy instead of dialing
+// directly. Only tunnel-capable schemes are supported so the uTLS
+// ClientHello and HTTP/2 framing pass through unmodified — see upstream/.
+type UpstreamConfig struct {
+	Enabled                     bool            `yaml:"enabled"`
+	Proxies                     []UpstreamProxy `yaml:"proxies"`
+	Select                      string          `yaml:"select"` // proxy name | "rotate" | "random" | "" (first proxy)
+	DialTimeoutMS               int             `yaml:"dial_timeout_ms"`
+	SuppressIPHeadersWhenActive bool            `yaml:"suppress_ip_headers_when_active"`
 }
 
 type TLSConfig struct {
@@ -91,7 +130,12 @@ func defaults() *Config {
 		MgmtListen: "127.0.0.1:8081",
 		CACert:     "ca.crt",
 		CAKey:      "ca.key",
-		TLS:    TLSConfig{Preset: "chrome"},
+		TLS:        TLSConfig{Preset: "chrome"},
+		Upstream: UpstreamConfig{
+			Enabled:                     false,
+			DialTimeoutMS:               15000,
+			SuppressIPHeadersWhenActive: true,
+		},
 		HTTP2: HTTP2Config{
 			Enabled: true,
 			// Chrome-like SETTINGS (order matters for fingerprint)

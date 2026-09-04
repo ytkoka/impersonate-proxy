@@ -27,6 +27,14 @@ async function fetchConfig(mgmtAddr) {
   return resp.json();
 }
 
+async function fetchUpstream(mgmtAddr) {
+  const resp = await fetch(`${mgmtAddr}/api/upstream`, {
+    signal: AbortSignal.timeout(2000),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
 async function postConfig(mgmtAddr, cfg) {
   const resp = await fetch(`${mgmtAddr}/api/config`, {
     method: 'POST',
@@ -156,6 +164,48 @@ async function init() {
   } catch {
     setStatus('disconnected', 'Proxy offline');
   }
+
+  // Fetch live upstream state separately — /api/upstream never returns
+  // credentials, only proxy names, but it can still fail independently
+  // (e.g. an older proxy binary without this endpoint).
+  try {
+    const up = await fetchUpstream(mgmtAddr);
+    populateUpstreamSelect(up.proxies || [], up.select || '');
+    el('upstreamEnabled').checked = !!up.enabled;
+    el('upstreamSelect').disabled = (up.proxies || []).length === 0;
+  } catch {
+    el('upstreamEnabled').checked = false;
+    el('upstreamEnabled').disabled = true;
+    el('upstreamSelect').disabled = true;
+  }
+}
+
+// populateUpstreamSelect rebuilds the upstream dropdown from the proxy
+// names the management API returns, plus the always-available rotate/random
+// modes, and selects whichever is currently active.
+function populateUpstreamSelect(names, current) {
+  const sel = el('upstreamSelect');
+  sel.innerHTML = '';
+  if (names.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = '(no proxies configured)';
+    sel.appendChild(opt);
+    return;
+  }
+  for (const name of names) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+  for (const mode of ['rotate', 'random']) {
+    const opt = document.createElement('option');
+    opt.value = mode;
+    opt.textContent = mode === 'rotate' ? 'Rotate' : 'Random';
+    sel.appendChild(opt);
+  }
+  sel.value = current || names[0];
 }
 
 // setRandomField syncs a text input + its random checkbox from a config value.
@@ -219,6 +269,30 @@ el('applyBtn').addEventListener('click', async () => {
     showApplyMsg(err.message, 'error');
   } finally {
     btn.disabled = false;
+  }
+});
+
+// Upstream proxy: enabled toggle and select both apply immediately via a
+// partial POST (only the changed field is sent — the management API keeps
+// every other setting, including TLS preset, untouched).
+el('upstreamEnabled').addEventListener('change', async e => {
+  const mgmtAddr = await loadMgmtAddr();
+  try {
+    await postConfig(mgmtAddr, { upstream_enabled: e.target.checked });
+    showApplyMsg(e.target.checked ? 'Upstream enabled' : 'Upstream disabled', 'success');
+  } catch (err) {
+    e.target.checked = !e.target.checked; // revert the toggle on failure
+    showApplyMsg(err.message, 'error');
+  }
+});
+
+el('upstreamSelect').addEventListener('change', async e => {
+  const mgmtAddr = await loadMgmtAddr();
+  try {
+    await postConfig(mgmtAddr, { upstream_select: e.target.value });
+    showApplyMsg(`Upstream: ${e.target.value}`, 'success');
+  } catch (err) {
+    showApplyMsg(err.message, 'error');
   }
 });
 

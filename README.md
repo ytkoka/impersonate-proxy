@@ -268,17 +268,20 @@ When the proxy starts it also exposes a lightweight HTTP API on `mgmt_listen` (d
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/config` | `GET` | Return active settings as JSON, including the current `custom_hello` |
-| `/api/config` | `POST` | Update TLS preset (including a fully custom `custom_hello`), client IP, and User-Agent |
+| `/api/config` | `GET` | Return active settings as JSON, including the current `custom_hello` and upstream state |
+| `/api/config` | `POST` | Partially update TLS preset / `custom_hello` / client IP / User-Agent / upstream enabled+select — omitted fields are left unchanged |
+| `/api/upstream` | `GET` | Return upstream state: `enabled`, `select`, configured proxy **names** (never URLs/credentials), and whether IP-header suppression is active |
+
+`POST /api/config` is a genuine partial update: send only the field you want to change and everything else — including TLS preset and upstream selection — is left as-is.
 
 ```bash
 # Read current settings
 curl http://127.0.0.1:8081/api/config
 
-# Switch to Firefox fingerprint and set a spoofed IP
+# Switch to Firefox fingerprint and set a spoofed IP (other fields untouched)
 curl -s -X POST http://127.0.0.1:8081/api/config \
   -H "Content-Type: application/json" \
-  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1","user_agent":""}'
+  -d '{"tls_preset":"firefox","client_ip":"203.0.113.1"}'
 
 # Switch to an arbitrary JA3/JA4 fingerprint at runtime — same fields as the
 # config.yaml custom_hello block, sent as JSON (see "Custom TLS fingerprint" below)
@@ -295,6 +298,15 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
     "client_ip": "",
     "user_agent": ""
   }'
+
+# Enable the upstream proxy and pick one by name — leaves TLS preset,
+# client IP, and User-Agent exactly as they were
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+
+# Read current upstream state
+curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 Changes take effect immediately for new connections. Set `mgmt_listen: ""` to disable the API entirely.
@@ -402,6 +414,47 @@ tls:
 
 > **Runtime updates:** `preset: "custom"` is not limited to `config.yaml` — it can also be switched to at runtime via the management API (`POST /api/config` with a `custom_hello` object, see [Management API](#management-api)) or from the Chrome extension's TLS Preset dropdown, without restarting the proxy.
 
+### Upstream proxy
+
+By default the proxy dials the target directly, so `X-Forwarded-For` / `True-Client-IP` spoofing (above) only changes what a request *claims* — the TCP connection's real source IP is still yours. Setting `upstream.enabled: true` routes the target connection through a SOCKS5 or HTTP CONNECT proxy first, so the **real egress IP** changes too. This lets you test WAF rules that ignore spoofable headers and look at the connecting IP itself, and to separate "fingerprint is fine but the IP is bad" from "IP is clean but the fingerprint is wrong."
+
+Only tunnel-capable schemes are supported — `socks5`, `socks5h`, and `http` (CONNECT). Both hand back a raw TCP tunnel that the proxy then wraps with uTLS itself, so the ClientHello and HTTP/2 framing this whole tool exists to control pass through completely unmodified. An `https://` (TLS-terminating) upstream is **not supported**: it would decrypt and re-establish TLS itself, replacing your uTLS fingerprint with its own.
+
+```yaml
+upstream:
+  enabled: false                         # off by default; toggle at runtime without restarting
+  select: "residential_us"               # proxy name | "rotate" | "random" | "" (first proxy)
+  dial_timeout_ms: 15000
+  suppress_ip_headers_when_active: true  # skip XFF/True-Client-IP while upstream is active — avoids a clean IP claiming a spoofed one
+  proxies:
+    - name: residential_us
+      url: "socks5://user:pass@gw.provider.com:1080"   # hostnames are resolved by the proxy (SOCKS5h behavior), never locally
+    - name: datacenter
+      url: "http://user:pass@dc.provider.com:8080"
+    - name: tor
+      url: "socks5://127.0.0.1:9050"                   # free to try: brew install tor && brew services start tor
+```
+
+Switch proxies at runtime the same way as the TLS preset — via the Chrome extension's "Upstream proxy" toggle/dropdown ([unpacked/Developer Mode builds only for now](#chrome-extension)), or:
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"upstream_enabled": true, "upstream_select": "residential_us"}'
+```
+
+`GET /api/upstream` and the Chrome extension's dropdown only ever show proxy **names** — URLs and credentials never leave the proxy process.
+
+**Verifying it actually worked:** check the real egress IP (e.g. `curl --proxy http://127.0.0.1:8080 https://ifconfig.me`) before and after enabling upstream, and separately confirm the fingerprint is unaffected with [tls.peet.ws](https://tls.peet.ws) — JA3/JA4 and the HTTP/2 fingerprint should be identical with `upstream.enabled` on or off, since only the network path changed.
+
+> **Gotcha:** a browser (unlike `curl`) keeps warm, pooled connections per origin. If you switch `select` (or toggle `enabled`) and then just reload a tab that already had a connection open, the browser may reuse that existing connection instead of opening a new one — so the change won't show up until it actually dials fresh. Test in a new Incognito window, or flush `chrome://net-internals/#sockets`, if a switch doesn't seem to take effect.
+
+> **Don't trust a proxy just because it accepts a connection.** A SOCKS5/CONNECT handshake succeeding tells you nothing about whether the proxy is honest — a malicious one can terminate your TLS itself and hand back its own certificate instead of tunneling raw bytes, letting it read (or alter) everything you thought was end-to-end encrypted. Before relying on any proxy you didn't set up yourself, check for exactly this: hit `https://tls.peet.ws` through it and confirm (a) there's no certificate error and (b) the JA4 matches what you get with `upstream.enabled: false`. A cert error or a changed JA4 means the "proxy" is intercepting your traffic, not tunneling it — don't route anything through it.
+
+> **Docker:** an upstream URL pointing at the host machine (e.g. a local Tor instance at `socks5://127.0.0.1:9050`) won't resolve inside the container — `127.0.0.1` there is the container's own loopback, not the host's. Use `socks5://host.docker.internal:9050` (Docker Desktop on Mac/Windows) or the container's default-gateway IP (Linux) instead.
+
+
+
 ## Usage
 
 ### Start the proxy
@@ -448,10 +501,13 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 | Cipher Suites / Curves / TLS Versions / Extensions | Shown when **Custom (JA3/JA4)** is selected — the same fields as `custom_hello` in `config.yaml`, letting you dial in an arbitrary JA3/JA4 fingerprint without editing YAML or restarting the proxy |
 | Client IP | Sets `X-Forwarded-For` and `True-Client-IP` on every request |
 | User-Agent | Overrides the HTTP `User-Agent` header |
+| Upstream proxy | Enables routing through an upstream SOCKS5/HTTP-CONNECT proxy and selects which one (or `rotate`/`random`) — see [Upstream proxy](#upstream-proxy). **Unpacked (Developer Mode) only for now** — see note below |
 | Apply button | POSTs the new settings to the management API; takes effect immediately |
 | API field | Address of the management API (default `http://127.0.0.1:8081`) |
 
 > **User-Agent scope:** The extension changes the HTTP `User-Agent` **header** only. JavaScript's `navigator.userAgent` is controlled by Chrome itself and is not affected. To spoof both simultaneously, launch Chrome with `--user-agent="..."` alongside the proxy settings.
+
+> **Upstream proxy control is Developer Mode only for now:** it's only available if you installed via **Option B (Load unpacked)** above. The Web Store release (Option A) hasn't been updated for it yet — that update is on hold for now, so until it ships, control upstream settings through the management API directly (curl, or your own script) if you're using the Web Store version.
 
 ### Playwright (Node.js)
 
@@ -511,14 +567,15 @@ impersonate-proxy/
 ├── fp/dialer.go              # uTLS dialer — TLS fingerprint presets
 ├── h2fp/conn.go              # HTTP/2 framer — SETTINGS / WINDOW_UPDATE / pseudo-header control
 ├── mitm/ca.go                # MITM CA: generate, cache, and serve leaf certs
+├── upstream/                 # Upstream SOCKS5/HTTP-CONNECT proxy: manager, dialers, selection
 ├── proxy/proxy.go            # Proxy server: CONNECT handling, protocol branch, runtime config
 ├── rewrite/headers.go        # HTTP header rewriting (UA, order, add/remove, IP spoof)
-├── mgmt/server.go            # Management HTTP API (/api/config GET + POST)
+├── mgmt/server.go            # Management HTTP API (/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # Toolbar popup UI
 │   ├── popup.css
-│   ├── popup.js              # Proxy toggle + management API client
+│   ├── popup.js              # Proxy toggle + upstream toggle + management API client
 │   ├── icon.svg
 │   └── icon16.png, icon48.png, icon128.png  # Toolbar / Web Store icons
 ├── config.yaml               # Default configuration
@@ -561,6 +618,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **Chunked request bodies**: Requests with `Transfer-Encoding: chunked` bodies are not currently supported.
 - **No QUIC / HTTP/3**: Out of scope.
 - **User-Agent (HTTP header only)**: The proxy rewrites the `User-Agent` HTTP header, but JavaScript's `navigator.userAgent` is set by the browser independently and is unaffected. Use Chrome's `--user-agent` launch flag to override both simultaneously.
+- **Upstream proxy is TCP-tunnel-only**: only `socks5` / `socks5h` / `http` (CONNECT) upstreams are supported — an upstream that terminates TLS itself is rejected at startup, since it would strip the uTLS ClientHello. See [Upstream proxy](#upstream-proxy).
 
 ## Legal notice
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"impersonate-proxy/config"
+	"impersonate-proxy/upstream"
 )
 
 // userAgents is the pool used when user_agent is set to "random".
@@ -37,11 +38,16 @@ var userAgents = []string{
 }
 
 type Rewriter struct {
-	cfg config.HTTPConfig
+	cfg         config.HTTPConfig
+	upstreamMgr *upstream.Manager
 }
 
-func New(cfg config.HTTPConfig) *Rewriter {
-	return &Rewriter{cfg: cfg}
+// New builds a Rewriter. upstreamMgr may be nil in tests that don't care
+// about IP-header suppression; production callers always pass the shared
+// Manager so a live upstream enabled/disabled toggle is reflected without
+// needing to rebuild the Rewriter.
+func New(cfg config.HTTPConfig, upstreamMgr *upstream.Manager) *Rewriter {
+	return &Rewriter{cfg: cfg, upstreamMgr: upstreamMgr}
 }
 
 // Apply modifies req headers in place: remove → add → User-Agent → client IP.
@@ -60,6 +66,13 @@ func (r *Rewriter) Apply(req *http.Request) {
 		// pass through
 	default:
 		req.Header.Set("User-Agent", r.cfg.UserAgent)
+	}
+
+	if r.upstreamMgr != nil && r.upstreamMgr.SuppressIPHeaders() {
+		// An upstream proxy is actively changing the real egress IP —
+		// don't also claim a spoofed one via headers, which would just
+		// contradict the connection's real source IP.
+		return
 	}
 	switch r.cfg.ClientIP {
 	case "random":
@@ -91,21 +104,21 @@ func randomPublicIP() string {
 
 func isPublicIPv4(a, b, c, _ int) bool {
 	switch {
-	case a == 0:                          // 0.0.0.0/8
+	case a == 0: // 0.0.0.0/8
 		return false
-	case a == 10:                         // 10.0.0.0/8 private
+	case a == 10: // 10.0.0.0/8 private
 		return false
 	case a == 100 && b >= 64 && b <= 127: // 100.64.0.0/10 shared address space
 		return false
-	case a == 127:                        // 127.0.0.0/8 loopback
+	case a == 127: // 127.0.0.0/8 loopback
 		return false
-	case a == 169 && b == 254:            // 169.254.0.0/16 link-local
+	case a == 169 && b == 254: // 169.254.0.0/16 link-local
 		return false
 	case a == 172 && b >= 16 && b <= 31: // 172.16.0.0/12 private
 		return false
-	case a == 192 && b == 0 && c == 2:   // 192.0.2.0/24 TEST-NET-1
+	case a == 192 && b == 0 && c == 2: // 192.0.2.0/24 TEST-NET-1
 		return false
-	case a == 192 && b == 168:           // 192.168.0.0/16 private
+	case a == 192 && b == 168: // 192.168.0.0/16 private
 		return false
 	case a == 198 && b >= 18 && b <= 19: // 198.18.0.0/15 benchmarking
 		return false
@@ -113,7 +126,7 @@ func isPublicIPv4(a, b, c, _ int) bool {
 		return false
 	case a == 203 && b == 0 && c == 113: // 203.0.113.0/24 TEST-NET-3
 		return false
-	case a >= 224:                        // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
+	case a >= 224: // 224.0.0.0/4 multicast + 240.0.0.0/4 reserved
 		return false
 	}
 	return true

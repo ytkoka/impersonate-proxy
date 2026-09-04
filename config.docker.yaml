@@ -116,3 +116,21 @@ http2:
     - authority
     - scheme
     - path
+
+# Route target connections through an upstream SOCKS5 / HTTP CONNECT proxy
+# instead of dialing direct — see the "Upstream proxy" section of README.md.
+#
+# NOTE (Docker-specific): a URL pointing at the host machine (e.g. Tor at
+# 127.0.0.1:9050) won't resolve as-is inside the container — 127.0.0.1 here
+# is the container's own loopback. Use host.docker.internal (Docker Desktop
+# on Mac/Windows) or the container's default-gateway IP (Linux) instead.
+upstream:
+  enabled: false
+  select: ""
+  dial_timeout_ms: 15000
+  suppress_ip_headers_when_active: true
+  proxies: []
+    # - name: residential_us
+    #   url: "socks5://user:pass@gw.provider.com:1080"
+    # - name: tor-on-host
+    #   url: "socks5://host.docker.internal:9050"
