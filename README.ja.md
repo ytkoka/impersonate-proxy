@@ -522,6 +522,8 @@ const page = await context.newPage();
 await page.goto('https://tls.peet.ws/api/all');
 ```
 
+管理APIでプリセットを切り替えながら、WAFの許可/ブロック判定を記録していくような、より実践的な例は[`examples/waf-fingerprint-test.js`](examples/waf-fingerprint-test.js)を参照してください。
+
 ### Playwright(Python)
 
 ```python
@@ -578,6 +580,8 @@ impersonate-proxy/
 │   └── icon16.png, icon48.png, icon128.png  # ツールバー / Web Store用アイコン
 ├── config.yaml               # デフォルト設定
 ├── config.docker.yaml        # docker-compose.ymlが使用する設定
+├── examples/
+│   └── waf-fingerprint-test.js  # Playwrightハーネス: プリセットを切り替えながらWAFの判定結果を記録
 ├── Dockerfile
 ├── docker-compose.yml
 └── Makefile

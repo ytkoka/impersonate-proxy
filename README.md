@@ -524,6 +524,8 @@ const page = await context.newPage();
 await page.goto('https://tls.peet.ws/api/all');
 ```
 
+For a more complete example — cycling through presets via the management API and recording a WAF's allow/block verdict for each — see [`examples/waf-fingerprint-test.js`](examples/waf-fingerprint-test.js).
+
 ### Playwright (Python)
 
 ```python
@@ -580,6 +582,8 @@ impersonate-proxy/
 │   └── icon16.png, icon48.png, icon128.png  # Toolbar / Web Store icons
 ├── config.yaml               # Default configuration
 ├── config.docker.yaml        # Configuration used by docker-compose.yml
+├── examples/
+│   └── waf-fingerprint-test.js  # Playwright harness: cycle presets, record WAF verdicts
 ├── Dockerfile
 ├── docker-compose.yml
 └── Makefile

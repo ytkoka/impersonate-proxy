@@ -521,6 +521,8 @@ const page = await context.newPage();
 await page.goto('https://tls.peet.ws/api/all');
 ```
 
+如需查看更完整的示例——通过管理 API 轮流切换预设并记录 WAF 的放行/拦截结果——请参见 [`examples/waf-fingerprint-test.js`](examples/waf-fingerprint-test.js)。
+
 ### Playwright(Python)
 
 ```python
@@ -577,6 +579,8 @@ impersonate-proxy/
 │   └── icon16.png, icon48.png, icon128.png  # 工具栏 / Web Store 图标
 ├── config.yaml               # 默认配置
 ├── config.docker.yaml        # docker-compose.yml 使用的配置
+├── examples/
+│   └── waf-fingerprint-test.js  # Playwright 测试脚本:轮流切换预设并记录 WAF 判定结果
 ├── Dockerfile
 ├── docker-compose.yml
 └── Makefile
