@@ -3,3 +3,4 @@ ca.crt
 ca.key
 .DS_Store
 /data/
+.claude/
