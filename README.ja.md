@@ -435,7 +435,7 @@ upstream:
       url: "socks5://127.0.0.1:9050"                   # 無料で試せる: brew install tor && brew services start tor
 ```
 
-TLSプリセットと同様に、実行時にもプロキシを切り替えられます。Chrome拡張機能の「Upstream proxy」トグル・ドロップダウンから([現時点ではパッケージ化されていない/デベロッパーモード版のみ対応](#chrome拡張機能))、または:
+TLSプリセットと同様に、実行時にもプロキシを切り替えられます。Chrome拡張機能の「Upstream proxy」トグル・ドロップダウンから、または:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8081/api/config \
@@ -499,13 +499,11 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | Cipher Suites / Curves / TLS Versions / Extensions | **Custom (JA3/JA4)** 選択時に表示 — `config.yaml` の `custom_hello` と同じフィールドで、YAMLを編集したりプロキシを再起動したりせずに任意のJA3/JA4フィンガープリントを指定できる |
 | Client IP | 全リクエストに `X-Forwarded-For` と `True-Client-IP` を設定 |
 | User-Agent | HTTPの `User-Agent` ヘッダーを上書き |
-| Upstream proxy | アップストリームのSOCKS5/HTTP-CONNECTプロキシ経由のルーティングを有効化し、使用するプロキシ(または `rotate`/`random`)を選択する — [アップストリームプロキシ](#アップストリームプロキシ)を参照。**現時点ではパッケージ化されていない(デベロッパーモード)版のみ対応** — 下記の注記を参照 |
+| Upstream proxy | アップストリームのSOCKS5/HTTP-CONNECTプロキシ経由のルーティングを有効化し、使用するプロキシ(または `rotate`/`random`)を選択する — [アップストリームプロキシ](#アップストリームプロキシ)を参照 |
 | Applyボタン | 新しい設定を管理APIにPOSTする。即座に反映される |
 | APIフィールド | 管理APIのアドレス(デフォルト `http://127.0.0.1:8081`) |
 
 > **User-Agentの適用範囲:** この拡張機能が変更するのはHTTPの `User-Agent` **ヘッダー**のみです。JavaScriptの `navigator.userAgent` はChrome自体が制御しており、影響を受けません。両方を同時に偽装するには、プロキシ設定と併せてChromeを `--user-agent="..."` オプション付きで起動してください。
-
-> **Upstream proxyの操作は現時点ではデベロッパーモードのみ対応:** 上記の**方法B(パッケージ化されていない拡張機能を読み込む)**でインストールした場合のみ利用できます。Chrome Web Store版(方法A)はこの機能に対応するための更新を当面見送っているため、Web Store版を使っている場合は、公開されるまで管理APIを直接(curlや自作スクリプトなどで)操作してアップストリームの設定を変更してください。
 
 ### Playwright(Node.js)
 

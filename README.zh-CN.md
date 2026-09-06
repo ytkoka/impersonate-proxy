@@ -434,7 +434,7 @@ upstream:
       url: "socks5://127.0.0.1:9050"                   # 可免费试用: brew install tor && brew services start tor
 ```
 
-和 TLS 预设一样,也可以在运行时切换代理——通过 Chrome 扩展的"Upstream proxy"开关/下拉菜单([目前仅已解压/开发者模式版本支持](#chrome-扩展)),或者:
+和 TLS 预设一样,也可以在运行时切换代理——通过 Chrome 扩展的"Upstream proxy"开关/下拉菜单,或者:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8081/api/config \
@@ -498,13 +498,11 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | Cipher Suites / Curves / TLS Versions / Extensions | 选择 **Custom (JA3/JA4)** 时显示 — 字段与 `config.yaml` 中的 `custom_hello` 相同,无需编辑 YAML 或重启代理即可设置任意 JA3/JA4 指纹 |
 | Client IP | 为每个请求设置 `X-Forwarded-For` 和 `True-Client-IP` |
 | User-Agent | 覆盖 HTTP 的 `User-Agent` 请求头 |
-| Upstream proxy | 启用通过上游 SOCKS5/HTTP-CONNECT 代理路由,并选择使用哪一个(或 `rotate`/`random`)——参见[上游代理](#上游代理)。**目前仅支持已解压(开发者模式)版本**——见下方说明 |
+| Upstream proxy | 启用通过上游 SOCKS5/HTTP-CONNECT 代理路由,并选择使用哪一个(或 `rotate`/`random`)——参见[上游代理](#上游代理) |
 | Apply 按钮 | 将新设置 POST 到管理 API;立即生效 |
 | API 字段 | 管理 API 的地址(默认 `http://127.0.0.1:8081`) |
 
 > **User-Agent 的作用范围:** 该扩展只修改 HTTP 的 `User-Agent` **请求头**。JavaScript 的 `navigator.userAgent` 由 Chrome 自身控制,不受影响。若要同时伪装两者,请在启动 Chrome 时附加 `--user-agent="..."` 参数,并配合代理设置一起使用。
-
-> **上游代理的操作目前仅支持开发者模式:** 只有通过上面的**方式 B(加载已解压的扩展程序)**安装时才可用。Chrome 应用商店版本(方式 A)对应的更新暂时搁置,尚未支持此功能——在发布之前,如果你使用的是应用商店版本,请直接通过管理 API(curl 或自己的脚本)来控制上游代理设置。
 
 ### Playwright(Node.js)
 

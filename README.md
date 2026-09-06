@@ -435,7 +435,7 @@ upstream:
       url: "socks5://127.0.0.1:9050"                   # free to try: brew install tor && brew services start tor
 ```
 
-Switch proxies at runtime the same way as the TLS preset — via the Chrome extension's "Upstream proxy" toggle/dropdown ([unpacked/Developer Mode builds only for now](#chrome-extension)), or:
+Switch proxies at runtime the same way as the TLS preset — via the Chrome extension's "Upstream proxy" toggle/dropdown, or:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8081/api/config \
@@ -501,13 +501,11 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 | Cipher Suites / Curves / TLS Versions / Extensions | Shown when **Custom (JA3/JA4)** is selected — the same fields as `custom_hello` in `config.yaml`, letting you dial in an arbitrary JA3/JA4 fingerprint without editing YAML or restarting the proxy |
 | Client IP | Sets `X-Forwarded-For` and `True-Client-IP` on every request |
 | User-Agent | Overrides the HTTP `User-Agent` header |
-| Upstream proxy | Enables routing through an upstream SOCKS5/HTTP-CONNECT proxy and selects which one (or `rotate`/`random`) — see [Upstream proxy](#upstream-proxy). **Unpacked (Developer Mode) only for now** — see note below |
+| Upstream proxy | Enables routing through an upstream SOCKS5/HTTP-CONNECT proxy and selects which one (or `rotate`/`random`) — see [Upstream proxy](#upstream-proxy) |
 | Apply button | POSTs the new settings to the management API; takes effect immediately |
 | API field | Address of the management API (default `http://127.0.0.1:8081`) |
 
 > **User-Agent scope:** The extension changes the HTTP `User-Agent` **header** only. JavaScript's `navigator.userAgent` is controlled by Chrome itself and is not affected. To spoof both simultaneously, launch Chrome with `--user-agent="..."` alongside the proxy settings.
-
-> **Upstream proxy control is Developer Mode only for now:** it's only available if you installed via **Option B (Load unpacked)** above. The Web Store release (Option A) hasn't been updated for it yet — that update is on hold for now, so until it ships, control upstream settings through the management API directly (curl, or your own script) if you're using the Web Store version.
 
 ### Playwright (Node.js)
 
