@@ -16,10 +16,14 @@ var presets = map[string]utls.ClientHelloID{
 	"chrome":  utls.HelloChrome_Auto,
 	"firefox": utls.HelloFirefox_Auto,
 	"safari":  utls.HelloSafari_Auto,
-	"edge":    utls.HelloEdge_Auto,
-	"ios":     utls.HelloIOS_Auto,
-	"random":  utls.HelloRandomized,
-	"golang":  utls.HelloGolang,
+	// Edge is Chromium-based and sends the same TLS as Chrome; utls.HelloEdge_Auto
+	// is an old Edge 85 hello that contradicts the Edg/131 User-Agent.
+	"edge": utls.HelloChrome_Auto,
+	// iOS Safari sends essentially the same TLS as macOS Safari; utls.HelloIOS_Auto
+	// is an old iOS 14 hello that contradicts the iOS 17 User-Agent.
+	"ios":    utls.HelloSafari_Auto,
+	"random": utls.HelloRandomized,
+	"golang": utls.HelloGolang,
 }
 
 func PresetNames() string {

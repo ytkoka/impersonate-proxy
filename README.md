@@ -220,6 +220,8 @@ tls:
 
 http:
   # Override User-Agent (leave empty to pass through the client's UA)
+  # "auto": use the UA matching tls.preset (passed through for random/golang/custom)
+  # "random": pick a random UA from a built-in list
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # Spoof source IP: sets both X-Forwarded-For and True-Client-IP to this value,
@@ -318,6 +320,23 @@ Changes take effect immediately for new connections. Set `mgmt_listen: ""` to di
 | Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
 | Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
 | Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+
+### User-Agent auto mode (`user_agent: "auto"`)
+
+With `user_agent: "auto"` the proxy sets the User-Agent that matches the current `tls.preset`, so the TLS fingerprint and the UA never contradict each other. Switching the preset (via config or the Chrome extension) switches the UA too.
+
+| `tls.preset` | User-Agent sent |
+|---|---|
+| `chrome` | Chrome 131 (macOS) |
+| `firefox` | Firefox 132 (macOS) |
+| `safari` | Safari 17.2 (macOS) |
+| `edge` | Edge 131 (Windows) |
+| `ios` | iPhone / iOS 17.1 Safari |
+| `random`, `golang`, `custom` | not modified — the client's own UA is passed through |
+
+`"random"` is a separate mode that picks a random UA from a built-in list on every request, regardless of the TLS preset.
+
+> **Note:** The `edge` preset sends the same TLS ClientHello as `chrome`, and `ios` the same as `safari` (the older uTLS Edge 85 / iOS 14 hellos contradicted the Edg/131 and iOS 17 User-Agents). Their JA3/JA4 values therefore match Chrome and Safari respectively.
 
 ### Custom TLS fingerprint (`preset: "custom"`)
 
@@ -500,7 +519,7 @@ The `chrome-extension/` directory contains a Manifest V3 extension that controls
 | TLS Preset | Switches the uTLS fingerprint preset (chrome / firefox / safari / edge / ios / random / golang / **custom**) |
 | Cipher Suites / Curves / TLS Versions / Extensions | Shown when **Custom (JA3/JA4)** is selected — the same fields as `custom_hello` in `config.yaml`, letting you dial in an arbitrary JA3/JA4 fingerprint without editing YAML or restarting the proxy |
 | Client IP | Sets `X-Forwarded-For` and `True-Client-IP` on every request |
-| User-Agent | Overrides the HTTP `User-Agent` header |
+| User-Agent | Overrides the HTTP `User-Agent` header. **Auto** follows the selected TLS preset (see [User-Agent auto mode](#user-agent-auto-mode-user_agent-auto)); **Random** picks a random UA per request. Auto and Random are mutually exclusive |
 | Upstream proxy | Enables routing through an upstream SOCKS5/HTTP-CONNECT proxy and selects which one (or `rotate`/`random`) — see [Upstream proxy](#upstream-proxy) |
 | Apply button | POSTs the new settings to the management API; takes effect immediately |
 | API field | Address of the management API (default `http://127.0.0.1:8081`) |

@@ -37,6 +37,17 @@ var userAgents = []string{
 	"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
 }
 
+// presetUserAgents maps a TLS preset to the User-Agent used when user_agent is
+// set to "auto". Presets without a matching browser (random, golang, custom)
+// are absent, so the client's User-Agent is passed through unchanged.
+var presetUserAgents = map[string]string{
+	"chrome":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+	"firefox": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0",
+	"safari":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+	"edge":    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+	"ios":     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+}
+
 type Rewriter struct {
 	cfg         config.HTTPConfig
 	upstreamMgr *upstream.Manager
@@ -52,7 +63,8 @@ func New(cfg config.HTTPConfig, upstreamMgr *upstream.Manager) *Rewriter {
 
 // Apply modifies req headers in place: remove → add → User-Agent → client IP.
 // Setting either field to "random" generates a new random value per request.
-func (r *Rewriter) Apply(req *http.Request) {
+// user_agent "auto" picks the User-Agent matching tlsPreset.
+func (r *Rewriter) Apply(req *http.Request, tlsPreset string) {
 	for _, h := range r.cfg.RemoveHeaders {
 		req.Header.Del(h)
 	}
@@ -62,6 +74,10 @@ func (r *Rewriter) Apply(req *http.Request) {
 	switch r.cfg.UserAgent {
 	case "random":
 		req.Header.Set("User-Agent", userAgents[rand.N(len(userAgents))])
+	case "auto":
+		if ua, ok := presetUserAgents[tlsPreset]; ok {
+			req.Header.Set("User-Agent", ua)
+		}
 	case "":
 		// pass through
 	default:

@@ -60,6 +60,8 @@ tls:
 
 http:
   # User-Agentを上書き（空文字にすると元のままを使用）
+  # "auto": tls.preset に対応するUAを自動設定（random/golang/custom では元のまま）
+  # "random": リストからランダムに選択
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # X-Forwarded-For と True-Client-IP を指定IPに上書き（空文字にすると無効）

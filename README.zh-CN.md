@@ -220,6 +220,8 @@ tls:
 
 http:
   # 覆盖 User-Agent(留空则原样转发客户端的 UA)
+  # "auto":使用与 tls.preset 对应的 UA(random/golang/custom 时原样转发)
+  # "random":从内置列表中随机选择
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # 伪装源 IP:将 X-Forwarded-For 和 True-Client-IP 都设置为该值,
@@ -317,6 +319,23 @@ curl -s http://127.0.0.1:8081/api/upstream
 | Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
 | Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
 | Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+
+### User-Agent 自动模式(`user_agent: "auto"`)
+
+设置 `user_agent: "auto"` 后,代理会使用与当前 `tls.preset` 对应的 User-Agent,使 TLS 指纹与 UA 不会相互矛盾。切换预设(通过配置文件或 Chrome 扩展)时,UA 也会随之切换。
+
+| `tls.preset` | 发送的 User-Agent |
+|---|---|
+| `chrome` | Chrome 131(macOS) |
+| `firefox` | Firefox 132(macOS) |
+| `safari` | Safari 17.2(macOS) |
+| `edge` | Edge 131(Windows) |
+| `ios` | iPhone / iOS 17.1 Safari |
+| `random`、`golang`、`custom` | 不修改 — 原样转发客户端的 UA |
+
+`"random"` 是另一种独立的模式,无论 TLS 预设是什么,每个请求都会从内置列表中随机选择一个 UA。
+
+> **注意:** `edge` 预设发送与 `chrome` 相同的 TLS ClientHello,`ios` 与 `safari` 相同(uTLS 中较旧的 Edge 85 / iOS 14 ClientHello 与 Edg/131、iOS 17 的 User-Agent 相矛盾)。因此它们的 JA3/JA4 值分别与 Chrome、Safari 一致。
 
 ### 自定义 TLS 指纹(`preset: "custom"`)
 
@@ -497,7 +516,7 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | TLS Preset | 切换 uTLS 指纹预设(chrome / firefox / safari / edge / ios / random / golang / **custom**) |
 | Cipher Suites / Curves / TLS Versions / Extensions | 选择 **Custom (JA3/JA4)** 时显示 — 字段与 `config.yaml` 中的 `custom_hello` 相同,无需编辑 YAML 或重启代理即可设置任意 JA3/JA4 指纹 |
 | Client IP | 为每个请求设置 `X-Forwarded-For` 和 `True-Client-IP` |
-| User-Agent | 覆盖 HTTP 的 `User-Agent` 请求头 |
+| User-Agent | 覆盖 HTTP 的 `User-Agent` 请求头。**Auto** 跟随所选的 TLS 预设(见「User-Agent 自动模式」),**Random** 每个请求随机选择;Auto 与 Random 互斥 |
 | Upstream proxy | 启用通过上游 SOCKS5/HTTP-CONNECT 代理路由,并选择使用哪一个(或 `rotate`/`random`)——参见[上游代理](#上游代理) |
 | Apply 按钮 | 将新设置 POST 到管理 API;立即生效 |
 | API 字段 | 管理 API 的地址(默认 `http://127.0.0.1:8081`) |

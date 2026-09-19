@@ -220,6 +220,8 @@ tls:
 
 http:
   # User-Agentを上書き(空にするとクライアントのUAをそのまま通す)
+  # "auto": tls.presetに対応するUAを使用(random/golang/customでは素通し)
+  # "random": 内蔵リストからランダムに選択
   user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
   # 送信元IPを偽装: X-Forwarded-For と True-Client-IP の両方をこの値に設定し、
@@ -318,6 +320,23 @@ curl -s http://127.0.0.1:8081/api/upstream
 | Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
 | Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
 | Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+
+### User-Agent自動モード(`user_agent: "auto"`)
+
+`user_agent: "auto"` を指定すると、現在の `tls.preset` に対応するUser-Agentが設定されます。TLSフィンガープリントとUAが食い違うことがなくなり、プリセットを切り替える(設定ファイルまたはChrome拡張機能)とUAも一緒に切り替わります。
+
+| `tls.preset` | 送信されるUser-Agent |
+|---|---|
+| `chrome` | Chrome 131(macOS) |
+| `firefox` | Firefox 132(macOS) |
+| `safari` | Safari 17.2(macOS) |
+| `edge` | Edge 131(Windows) |
+| `ios` | iPhone / iOS 17.1 Safari |
+| `random`, `golang`, `custom` | 変更しない — クライアントのUAをそのまま通す |
+
+`"random"` は別のモードで、TLSプリセットに関係なく、リクエストごとに内蔵リストからランダムなUAを選びます。
+
+> **注意:** `edge` プリセットは `chrome` と同じTLS ClientHello、`ios` は `safari` と同じClientHelloを送信します(uTLSの古いEdge 85 / iOS 14のClientHelloは、Edg/131やiOS 17のUser-Agentと矛盾していたため)。そのため、JA3/JA4の値はそれぞれChrome・Safariと一致します。
 
 ### カスタムTLSフィンガープリント(`preset: "custom"`)
 
@@ -498,7 +517,7 @@ curl --proxy http://127.0.0.1:8080 --cacert ca.crt https://tls.peet.ws/api/all
 | TLS Preset | uTLSのフィンガープリントプリセットを切り替え(chrome / firefox / safari / edge / ios / random / golang / **custom**) |
 | Cipher Suites / Curves / TLS Versions / Extensions | **Custom (JA3/JA4)** 選択時に表示 — `config.yaml` の `custom_hello` と同じフィールドで、YAMLを編集したりプロキシを再起動したりせずに任意のJA3/JA4フィンガープリントを指定できる |
 | Client IP | 全リクエストに `X-Forwarded-For` と `True-Client-IP` を設定 |
-| User-Agent | HTTPの `User-Agent` ヘッダーを上書き |
+| User-Agent | HTTPの `User-Agent` ヘッダーを上書き。**Auto** は選択中のTLSプリセットに追従(「User-Agent自動モード」参照)、**Random** はリクエストごとにランダム選択。AutoとRandomは同時に選べません |
 | Upstream proxy | アップストリームのSOCKS5/HTTP-CONNECTプロキシ経由のルーティングを有効化し、使用するプロキシ(または `rotate`/`random`)を選択する — [アップストリームプロキシ](#アップストリームプロキシ)を参照 |
 | Applyボタン | 新しい設定を管理APIにPOSTする。即座に反映される |
 | APIフィールド | 管理APIのアドレス(デフォルト `http://127.0.0.1:8081`) |

@@ -249,7 +249,7 @@ func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string,
 		if err != nil {
 			return
 		}
-		deps.rewriter.Apply(req)
+		deps.rewriter.Apply(req, deps.preset)
 
 		resp, err := h2conn.RoundTrip(req)
 		if err != nil {
@@ -277,7 +277,7 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn, deps connDep
 		if err != nil {
 			return
 		}
-		deps.rewriter.Apply(req)
+		deps.rewriter.Apply(req, deps.preset)
 
 		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 			return
@@ -321,7 +321,7 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 		for _, h := range hopByHopHeaders {
 			req.Header.Del(h)
 		}
-		deps.rewriter.Apply(req)
+		deps.rewriter.Apply(req, deps.preset)
 
 		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 			serverConn.Close()

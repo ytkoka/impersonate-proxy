@@ -158,7 +158,7 @@ async function init() {
     setCustomHelloForm(cfg.custom_hello);
     updateCustomHelloVisibility();
     setRandomField('clientIP',  'clientIPRandom',   cfg.client_ip  || '');
-    setRandomField('userAgent', 'userAgentRandom',  cfg.user_agent || '');
+    setUserAgentField(cfg.user_agent || '');
     const { host, port } = parseListenAddr(cfg.listen);
     setStatus('connected', `Connected · ${host}:${port}`);
   } catch {
@@ -217,6 +217,20 @@ function setRandomField(inputId, checkId, value) {
   el(inputId).value    = isRandom ? '' : value;
 }
 
+// setUserAgentField syncs the User-Agent textarea with its Auto/Random
+// checkboxes ("auto" and "random" are mutually exclusive config values).
+function setUserAgentField(value) {
+  el('userAgentAuto').checked   = value === 'auto';
+  el('userAgentRandom').checked = value === 'random';
+  el('userAgent').disabled      = value === 'auto' || value === 'random';
+  el('userAgent').value         = el('userAgent').disabled ? '' : value;
+}
+
+function userAgentValue() {
+  if (el('userAgentAuto').checked) return 'auto';
+  return randomFieldValue('userAgent', 'userAgentRandom');
+}
+
 // randomFieldValue returns "random" when the checkbox is checked,
 // otherwise returns the trimmed text input value.
 function randomFieldValue(inputId, checkId) {
@@ -248,9 +262,13 @@ el('tlsPreset').addEventListener('change', updateCustomHelloVisibility);
 el('clientIPRandom').addEventListener('change', () => {
   el('clientIP').disabled = el('clientIPRandom').checked;
 });
-el('userAgentRandom').addEventListener('change', () => {
-  el('userAgent').disabled = el('userAgentRandom').checked;
-});
+// User-Agent Auto and Random are mutually exclusive.
+for (const [self, other] of [['userAgentAuto', 'userAgentRandom'], ['userAgentRandom', 'userAgentAuto']]) {
+  el(self).addEventListener('change', () => {
+    if (el(self).checked) el(other).checked = false;
+    el('userAgent').disabled = el('userAgentAuto').checked || el('userAgentRandom').checked;
+  });
+}
 
 // Apply button: POST settings to management API.
 el('applyBtn').addEventListener('click', async () => {
@@ -262,7 +280,7 @@ el('applyBtn').addEventListener('click', async () => {
       tls_preset:   el('tlsPreset').value,
       custom_hello: customHelloFromForm(),
       client_ip:    randomFieldValue('clientIP',  'clientIPRandom'),
-      user_agent:   randomFieldValue('userAgent', 'userAgentRandom'),
+      user_agent:   userAgentValue(),
     });
     showApplyMsg('Applied', 'success');
   } catch (err) {
