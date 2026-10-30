@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 	"sync"
 
@@ -249,6 +251,9 @@ func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string,
 		if err != nil {
 			return
 		}
+		if err := handleExpect(req, clientTLS); err != nil {
+			return
+		}
 		deps.rewriter.Apply(req, deps.preset)
 
 		resp, err := h2conn.RoundTrip(req)
@@ -277,12 +282,15 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn, deps connDep
 		if err != nil {
 			return
 		}
+		if err := handleExpect(req, clientTLS); err != nil {
+			return
+		}
 		deps.rewriter.Apply(req, deps.preset)
 
 		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 			return
 		}
-		resp, err := http.ReadResponse(serverBR, req)
+		resp, err := readFinalResponse(serverBR, req, clientTLS)
 		if err != nil {
 			return
 		}
@@ -321,13 +329,17 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 		for _, h := range hopByHopHeaders {
 			req.Header.Del(h)
 		}
+		if err := handleExpect(req, clientConn); err != nil {
+			serverConn.Close()
+			return
+		}
 		deps.rewriter.Apply(req, deps.preset)
 
 		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
 			serverConn.Close()
 			return
 		}
-		resp, err := http.ReadResponse(bufio.NewReader(serverConn), req)
+		resp, err := readFinalResponse(bufio.NewReader(serverConn), req, clientConn)
 		if err != nil {
 			serverConn.Close()
 			return
@@ -356,6 +368,13 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 // This controls the header order seen by the server (JA4H).
 func writeRequest(req *http.Request, w io.Writer, order []string) error {
 	bw := bufio.NewWriter(w)
+
+	// http.ReadRequest moves Transfer-Encoding out of Header and decodes the
+	// body, so the framing must be restored or the server can't find its end.
+	chunked := len(req.TransferEncoding) > 0 && req.TransferEncoding[0] == "chunked"
+	if chunked {
+		req.Header.Set("Transfer-Encoding", "chunked")
+	}
 
 	uri := req.URL.RequestURI()
 	if uri == "" {
@@ -400,11 +419,89 @@ func writeRequest(req *http.Request, w io.Writer, order []string) error {
 
 	fmt.Fprintf(bw, "\r\n")
 
+	if chunked {
+		if err := writeChunkedBody(bw, req.Body); err != nil {
+			return err
+		}
+		return bw.Flush()
+	}
+
 	if req.Body != nil && req.Body != http.NoBody {
 		io.Copy(bw, req.Body)
 	}
 
 	return bw.Flush()
+}
+
+// writeChunkedBody re-encodes body with chunked framing, flushing after every
+// chunk so a slowly produced body reaches the server as it arrives. If body
+// fails, the terminating chunk is withheld so the server can't mistake a
+// truncated body for a complete one. Trailers are not forwarded.
+func writeChunkedBody(bw *bufio.Writer, body io.Reader) error {
+	cw := httputil.NewChunkedWriter(bw)
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if _, werr := cw.Write(buf[:n]); werr != nil {
+				return werr
+			}
+			if werr := bw.Flush(); werr != nil {
+				return werr
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	if err := cw.Close(); err != nil {
+		return err
+	}
+	_, err := bw.WriteString("\r\n")
+	return err
+}
+
+// handleExpect answers Expect: 100-continue on the proxy itself and strips the
+// header, so the client starts sending its body and the server never sees a
+// header that browsers don't send. Other Expect values are forwarded untouched.
+func handleExpect(req *http.Request, client io.Writer) error {
+	if !strings.EqualFold(req.Header.Get("Expect"), "100-continue") {
+		return nil
+	}
+	req.Header.Del("Expect")
+	if req.Body == nil || req.Body == http.NoBody {
+		return nil
+	}
+	_, err := io.WriteString(client, "HTTP/1.1 100 Continue\r\n\r\n")
+	return err
+}
+
+// readFinalResponse reads from br until a non-informational response arrives,
+// relaying any 1xx responses to client along the way. http.ReadResponse returns
+// them like any other response, which would otherwise be mistaken for the final
+// one. 101 is final because it ends the HTTP exchange on the connection.
+func readFinalResponse(br *bufio.Reader, req *http.Request, client io.Writer) (*http.Response, error) {
+	for {
+		resp, err := http.ReadResponse(br, req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode >= 200 || resp.StatusCode == http.StatusSwitchingProtocols {
+			return resp, nil
+		}
+		resp.Body.Close()
+		// Not resp.Write: it adds a Content-Length, which 1xx must not carry.
+		var buf bytes.Buffer
+		fmt.Fprintf(&buf, "HTTP/1.1 %s\r\n", resp.Status)
+		resp.Header.Write(&buf)
+		buf.WriteString("\r\n")
+		if _, err := client.Write(buf.Bytes()); err != nil {
+			return nil, err
+		}
+	}
 }
 
 var hopByHopHeaders = []string{

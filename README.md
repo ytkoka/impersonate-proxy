@@ -636,7 +636,9 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 
 - **MITM only**: The proxy decrypts and re-encrypts traffic. Clients must trust the generated CA.
 - **No HTTP/2 from client**: The client→proxy leg uses HTTP/1.1 (via CONNECT). Only the proxy→server leg uses HTTP/2 with custom fingerprints.
-- **Chunked request bodies**: Requests with `Transfer-Encoding: chunked` bodies are not currently supported.
+- **Request trailers**: `Transfer-Encoding: chunked` request bodies are forwarded, but their trailers are dropped.
+- **`Expect: 100-continue`**: The proxy answers this itself and strips the header, so the client sends its body before the server has accepted the request.
+- **Large request bodies over HTTP/2**: The body is sent as a single DATA frame without flow control, so a server can reject bodies above its frame size limit (typically 16 KB) with `FRAME_SIZE_ERROR`. HTTP/1.1 is not affected.
 - **No QUIC / HTTP/3**: Out of scope.
 - **User-Agent (HTTP header only)**: The proxy rewrites the `User-Agent` HTTP header, but JavaScript's `navigator.userAgent` is set by the browser independently and is unaffected. Use Chrome's `--user-agent` launch flag to override both simultaneously.
 - **Upstream proxy is TCP-tunnel-only**: only `socks5` / `socks5h` / `http` (CONNECT) upstreams are supported — an upstream that terminates TLS itself is rejected at startup, since it would strip the uTLS ClientHello. See [Upstream proxy](#upstream-proxy).
