@@ -636,6 +636,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **クライアント側はHTTP/2非対応**: クライアント→プロキシ間はHTTP/1.1(CONNECT経由)です。プロキシ→サーバー間のみカスタムフィンガープリント付きのHTTP/2を使用します。
 - **リクエストのトレーラー**: `Transfer-Encoding: chunked` のリクエストボディは転送されますが、トレーラーは破棄されます。
 - **`Expect: 100-continue`**: プロキシ自身が応答してヘッダーを削除するため、クライアントはサーバーがリクエストを受け入れる前にボディを送信します。
+- **WebSocket**: `wss://` はHTTP/1.1のみ対応です。サーバーがh2の場合、アップグレード用に別の接続を開き、ブラウザのWebSocketと同様にALPNを `http/1.1` のみ・ALPS拡張なしにしたClientHelloを使います。そのためこの接続のJA3/JA4はh2接続とは異なり、実ブラウザのキャプチャとの照合は未実施です。アップグレード後の通信はバイト単位でそのまま中継します。非対応: `CONNECT` 経由の `ws://`(トンネルはTLS前提)、HTTP/2上のWebSocket(RFC 8441)。
 - **HTTP/2での大きなリクエストボディ**: ボディはフロー制御なしで1つのDATAフレームとして送信されるため、サーバーのフレームサイズ上限(通常16KB)を超えると `FRAME_SIZE_ERROR` で拒否されることがあります。HTTP/1.1には影響しません。
 - **QUIC / HTTP/3非対応**: 対象外です。
 - **User-Agent(HTTPヘッダーのみ)**: プロキシはHTTPの `User-Agent` ヘッダーを書き換えますが、JavaScriptの `navigator.userAgent` はブラウザが独自に設定するため影響を受けません。両方を同時に上書きするにはChromeの `--user-agent` 起動オプションを使用してください。

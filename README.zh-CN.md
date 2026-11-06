@@ -635,6 +635,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **客户端不支持 HTTP/2**:客户端→代理这一段使用 HTTP/1.1(通过 CONNECT)。只有代理→服务器这一段使用带自定义指纹的 HTTP/2。
 - **请求 trailer**:`Transfer-Encoding: chunked` 的请求体可以转发,但其 trailer 会被丢弃。
 - **`Expect: 100-continue`**:由代理自行应答并删除该请求头,因此客户端会在服务器接受请求之前发送请求体。
+- **WebSocket**:`wss://` 仅支持 HTTP/1.1。服务器使用 h2 时,代理会为升级请求另开一条连接,其 ClientHello 与浏览器的 WebSocket 连接一样只在 ALPN 中提供 `http/1.1` 且不含 ALPS 扩展,因此该连接的 JA3/JA4 与 h2 连接不同,且尚未与真实浏览器抓包对照。升级后的数据按字节原样转发。不支持:经 `CONNECT` 的 `ws://`(隧道默认为 TLS),以及基于 HTTP/2 的 WebSocket(RFC 8441)。
 - **HTTP/2 下的大请求体**:请求体以单个 DATA 帧发送且不做流量控制,超过服务器帧大小上限(通常为 16 KB)时可能被 `FRAME_SIZE_ERROR` 拒绝。HTTP/1.1 不受影响。
 - **不支持 QUIC / HTTP/3**:超出本项目范围。
 - **User-Agent(仅 HTTP 请求头)**:代理会改写 HTTP 的 `User-Agent` 请求头,但 JavaScript 的 `navigator.userAgent` 由浏览器自行设置,不受影响。如需同时覆盖两者,请使用 Chrome 的 `--user-agent` 启动参数。

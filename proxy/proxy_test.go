@@ -139,7 +139,7 @@ func TestChunkedBodyWithExpect(t *testing.T) {
 			go (&http2.Server{}).ServeConn(h2Side, &http2.ServeConnOpts{Handler: echoHandler})
 			s, deps := testDeps(t)
 			client, proxySide := tlsPair(t)
-			go s.tunnelH2(proxySide, &fp.Conn{Conn: serverConn}, "example.test", deps)
+			go s.tunnelH2(proxySide, &fp.Conn{Conn: serverConn}, "example.test", deps, nil)
 			return client, "/"
 		}},
 	}

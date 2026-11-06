@@ -77,6 +77,19 @@ func NewDialerFromConfig(cfg config.TLSConfig) (*Dialer, error) {
 // everything from here on (uTLS, and h2fp above it) is unaware of whether
 // an upstream proxy was involved.
 func (d *Dialer) Dial(ctx context.Context, base upstream.BaseDialer, host, addr string) (*Conn, error) {
+	return d.dial(ctx, base, host, addr, false)
+}
+
+// DialH1 is Dial for a connection that must speak HTTP/1.1, such as one that
+// will carry a WebSocket upgrade (RFC 8441 is not supported). Like a browser's
+// WebSocket socket, the ClientHello offers only "http/1.1" in ALPN and omits
+// the ALPS extension, which is meaningful only alongside h2. Everything else in
+// the preset's ClientHello is left as is.
+func (d *Dialer) DialH1(ctx context.Context, base upstream.BaseDialer, host, addr string) (*Conn, error) {
+	return d.dial(ctx, base, host, addr, true)
+}
+
+func (d *Dialer) dial(ctx context.Context, base upstream.BaseDialer, host, addr string, h1Only bool) (*Conn, error) {
 	rawConn, err := base.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return nil, err
@@ -88,6 +101,12 @@ func (d *Dialer) Dial(ctx context.Context, base upstream.BaseDialer, host, addr 
 			return nil, fmt.Errorf("apply custom TLS spec for %s: %w", host, err)
 		}
 	}
+	if h1Only {
+		if err := restrictToH1(uconn); err != nil {
+			rawConn.Close()
+			return nil, fmt.Errorf("restrict ClientHello for %s to http/1.1: %w", host, err)
+		}
+	}
 	if err := uconn.Handshake(); err != nil {
 		rawConn.Close()
 		return nil, fmt.Errorf("TLS handshake with %s: %w", host, err)
@@ -97,6 +116,26 @@ func (d *Dialer) Dial(ctx context.Context, base upstream.BaseDialer, host, addr 
 		proto = "http/1.1"
 	}
 	return &Conn{Conn: uconn, Proto: proto}, nil
+}
+
+// restrictToH1 rewrites the ClientHello built for uconn so that it offers only
+// "http/1.1" via ALPN and carries no ALPS (application_settings) extension.
+func restrictToH1(uconn *utls.UConn) error {
+	if err := uconn.BuildHandshakeState(); err != nil {
+		return err
+	}
+	kept := uconn.Extensions[:0]
+	for _, ext := range uconn.Extensions {
+		switch e := ext.(type) {
+		case *utls.ALPNExtension:
+			e.AlpnProtocols = []string{"http/1.1"}
+		case *utls.ApplicationSettingsExtension, *utls.ApplicationSettingsExtensionNew:
+			continue
+		}
+		kept = append(kept, ext)
+	}
+	uconn.Extensions = kept
+	return nil
 }
 
 // ── Custom ClientHello builder ───────────────────────────────────────────────

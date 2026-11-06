@@ -230,15 +230,24 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps conn
 	log.Printf("CONNECT %s  proto=%s preset=%s upstream=%s", addr, serverConn.Proto, deps.preset, upstreamName)
 
 	if serverConn.Proto == "h2" && deps.h2cfg.Enabled {
-		s.tunnelH2(clientTLS, serverConn, host, deps)
+		// WebSocket needs HTTP/1.1, which this h2 connection cannot provide, so
+		// the h2 tunnel opens a second, h1-only connection when one is asked for.
+		dialH1 := func() (*fp.Conn, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), s.upstreamMgr.DialTimeout())
+			defer cancel()
+			return deps.dialer.DialH1(ctx, base, host, addr)
+		}
+		s.tunnelH2(clientTLS, serverConn, host, deps, dialH1)
 	} else {
 		s.tunnelH1(clientTLS, serverConn, deps)
 	}
 }
 
 // tunnelH2 forwards HTTP requests over an HTTP/2 connection with the configured
-// SETTINGS, WINDOW_UPDATE, and pseudo-header order.
-func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string, deps connDeps) {
+// SETTINGS, WINDOW_UPDATE, and pseudo-header order. Requests are plain h2
+// except WebSocket upgrades, which go over a separate HTTP/1.1 connection from
+// dialH1 (nil disables that, leaving upgrades to h2 where they are dropped).
+func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string, deps connDeps, dialH1 h1Dialer) {
 	h2conn, err := h2fp.Dial(serverConn, deps.h2cfg, deps.rewriter.Order())
 	if err != nil {
 		log.Printf("h2 dial(%s): %v", host, err)
@@ -255,6 +264,20 @@ func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string,
 			return
 		}
 		deps.rewriter.Apply(req, deps.preset)
+
+		if dialH1 != nil && isWebSocketUpgrade(req) {
+			h1Conn, err := dialH1()
+			if err != nil {
+				log.Printf("h1 dial for upgrade(%s): %v", host, err)
+				fmt.Fprintf(clientTLS, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+				return
+			}
+			log.Printf("UPGRADE %s %s  proto=http/1.1 (separate connection)", host, req.URL.RequestURI())
+			if !upgradeOverH1(clientTLS, clientBR, h1Conn, req, deps.rewriter.Order()) {
+				return
+			}
+			continue
+		}
 
 		resp, err := h2conn.RoundTrip(req)
 		if err != nil {
@@ -294,6 +317,10 @@ func (s *Server) tunnelH1(clientTLS *tls.Conn, serverConn *fp.Conn, deps connDep
 		if err != nil {
 			return
 		}
+		if resp.StatusCode == http.StatusSwitchingProtocols {
+			relayUpgraded(clientTLS, clientBR, serverConn, serverBR, resp)
+			return
+		}
 		closeAfter := resp.Close || req.Close
 		if err := resp.Write(clientTLS); err != nil {
 			resp.Body.Close()
@@ -326,7 +353,12 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 		}
 
 		req.RequestURI = req.URL.RequestURI()
+		// A WebSocket handshake is meaningless without Connection/Upgrade.
+		isUpgrade := isWebSocketUpgrade(req)
 		for _, h := range hopByHopHeaders {
+			if isUpgrade && (h == "Connection" || h == "Upgrade") {
+				continue
+			}
 			req.Header.Del(h)
 		}
 		if err := handleExpect(req, clientConn); err != nil {
@@ -339,13 +371,18 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 			serverConn.Close()
 			return
 		}
-		resp, err := readFinalResponse(bufio.NewReader(serverConn), req, clientConn)
+		serverBR := bufio.NewReader(serverConn)
+		resp, err := readFinalResponse(serverBR, req, clientConn)
 		if err != nil {
 			serverConn.Close()
 			return
 		}
 
 		log.Printf("HTTP  %s %s → %d", req.Method, req.URL, resp.StatusCode)
+		if resp.StatusCode == http.StatusSwitchingProtocols {
+			relayUpgraded(clientConn, clientBR, serverConn, serverBR, resp)
+			return
+		}
 		closeAfter := resp.Close || req.Close
 		writeErr := resp.Write(clientConn)
 		resp.Body.Close()
@@ -362,6 +399,81 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 			return
 		}
 	}
+}
+
+// h1Dialer opens a fresh upstream connection that speaks only HTTP/1.1.
+type h1Dialer func() (*fp.Conn, error)
+
+// isWebSocketUpgrade reports whether req asks to switch to the WebSocket protocol.
+func isWebSocketUpgrade(req *http.Request) bool {
+	return headerHasToken(req.Header, "Connection", "upgrade") &&
+		headerHasToken(req.Header, "Upgrade", "websocket")
+}
+
+// headerHasToken reports whether any value of the named comma-separated header
+// contains token (case-insensitive).
+func headerHasToken(h http.Header, name, token string) bool {
+	for _, v := range h.Values(name) {
+		for _, t := range strings.Split(v, ",") {
+			if strings.EqualFold(strings.TrimSpace(t), token) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// upgradeOverH1 sends the upgrade request req over serverConn (closed on
+// return) and relays the result to the client. It reports whether the client
+// connection can carry on with further requests: false once the connection was
+// taken over by an upgraded protocol, or on any error or Connection: close.
+func upgradeOverH1(client net.Conn, clientBR *bufio.Reader, serverConn net.Conn, req *http.Request, order []string) bool {
+	defer serverConn.Close()
+	serverBR := bufio.NewReader(serverConn)
+	if err := writeRequest(req, serverConn, order); err != nil {
+		return false
+	}
+	resp, err := readFinalResponse(serverBR, req, client)
+	if err != nil {
+		return false
+	}
+	if resp.StatusCode == http.StatusSwitchingProtocols {
+		relayUpgraded(client, clientBR, serverConn, serverBR, resp)
+		return false
+	}
+	// The server declined the upgrade; pass its answer on as an ordinary response.
+	closeAfter := resp.Close || req.Close
+	err = resp.Write(client)
+	resp.Body.Close()
+	return err == nil && !closeAfter
+}
+
+// relayUpgraded forwards the 101 response, then copies bytes both ways without
+// interpreting them (WebSocket frames, extensions and all). clientR and serverR
+// are the bufio readers the HTTP exchange used: they may already hold bytes
+// sent right after the handshake, so reading the raw conns would lose them.
+// It returns, with both conns closed, once either direction ends.
+func relayUpgraded(client io.ReadWriteCloser, clientR io.Reader, server io.ReadWriteCloser, serverR io.Reader, resp *http.Response) {
+	// Not resp.Write: it would add framing headers that a 101 must not carry.
+	var head bytes.Buffer
+	fmt.Fprintf(&head, "HTTP/1.1 %s\r\n", resp.Status)
+	resp.Header.Write(&head)
+	head.WriteString("\r\n")
+	if _, err := client.Write(head.Bytes()); err != nil {
+		client.Close()
+		server.Close()
+		return
+	}
+
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(server, clientR); done <- struct{}{} }()
+	go func() { io.Copy(client, serverR); done <- struct{}{} }()
+	// Upgraded protocols end with their own close handshake followed by a TCP
+	// close, so the first direction to finish ends the whole relay.
+	<-done
+	client.Close()
+	server.Close()
+	<-done
 }
 
 // writeRequest writes req to w with headers emitted in order first, then the rest.

@@ -638,6 +638,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **No HTTP/2 from client**: The client→proxy leg uses HTTP/1.1 (via CONNECT). Only the proxy→server leg uses HTTP/2 with custom fingerprints.
 - **Request trailers**: `Transfer-Encoding: chunked` request bodies are forwarded, but their trailers are dropped.
 - **`Expect: 100-continue`**: The proxy answers this itself and strips the header, so the client sends its body before the server has accepted the request.
+- **WebSocket**: `wss://` is supported over HTTP/1.1 only. When the server speaks h2, the proxy opens a second connection for the upgrade with a ClientHello that offers only `http/1.1` ALPN and no ALPS extension (as browsers do for WebSocket sockets); that hello's JA3/JA4 therefore differs from the page's h2 connection, and has not been compared against a real browser capture. The upgraded stream is relayed byte for byte. Not supported: `ws://` through `CONNECT` (the tunnel assumes TLS), and WebSocket over HTTP/2 (RFC 8441).
 - **Large request bodies over HTTP/2**: The body is sent as a single DATA frame without flow control, so a server can reject bodies above its frame size limit (typically 16 KB) with `FRAME_SIZE_ERROR`. HTTP/1.1 is not affected.
 - **No QUIC / HTTP/3**: Out of scope.
 - **User-Agent (HTTP header only)**: The proxy rewrites the `User-Agent` HTTP header, but JavaScript's `navigator.userAgent` is set by the browser independently and is unaffected. Use Chrome's `--user-agent` launch flag to override both simultaneously.
