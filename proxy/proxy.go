@@ -11,10 +11,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"slices"
 	"strings"
 	"sync"
 
 	"impersonate-proxy/config"
+	"impersonate-proxy/filter"
 	"impersonate-proxy/fp"
 	"impersonate-proxy/h2fp"
 	"impersonate-proxy/mitm"
@@ -28,17 +30,25 @@ type Server struct {
 	mu          sync.RWMutex
 	dialer      *fp.Dialer
 	rewriter    *rewrite.Rewriter
+	filter      *filter.Matcher   // which hosts get impersonated; nil means all
 	upstreamMgr *upstream.Manager // independent lifecycle: not rebuilt when TLS/HTTP settings change
 }
 
-func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer, upstreamMgr *upstream.Manager) *Server {
+// New builds a Server. It fails if cfg.Filter is invalid.
+func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer, upstreamMgr *upstream.Manager) (*Server, error) {
+	f, err := filter.New(cfg.Filter.Mode, cfg.Filter.Hosts)
+	if err != nil {
+		return nil, fmt.Errorf("filter config: %w", err)
+	}
+	cfg.Filter.Mode = f.Mode()
 	return &Server{
 		cfg:         cfg,
 		ca:          ca,
 		dialer:      dialer,
 		rewriter:    rewrite.New(cfg.HTTP, upstreamMgr),
+		filter:      f,
 		upstreamMgr: upstreamMgr,
-	}
+	}, nil
 }
 
 // connDeps is a snapshot of the mutable per-connection dependencies taken at
@@ -46,6 +56,7 @@ func New(cfg *config.Config, ca *mitm.CA, dialer *fp.Dialer, upstreamMgr *upstre
 type connDeps struct {
 	dialer   *fp.Dialer
 	rewriter *rewrite.Rewriter
+	filter   *filter.Matcher
 	h2cfg    config.HTTP2Config
 	preset   string
 }
@@ -56,6 +67,7 @@ func (s *Server) snap() connDeps {
 	return connDeps{
 		dialer:   s.dialer,
 		rewriter: s.rewriter,
+		filter:   s.filter,
 		h2cfg:    s.cfg.HTTP2,
 		preset:   s.cfg.TLS.Preset,
 	}
@@ -67,6 +79,7 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 	tls := s.cfg.TLS
 	http := s.cfg.HTTP
 	listen := s.cfg.Listen
+	flt := s.cfg.Filter
 	s.mu.RUnlock()
 
 	return config.ActiveConfig{
@@ -80,6 +93,9 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 		UpstreamSelect:            s.upstreamMgr.Selection(),
 		UpstreamProxies:           s.upstreamMgr.List(),
 		UpstreamSuppressIPHeaders: s.upstreamMgr.SuppressIPHeaders(),
+
+		FilterMode:  flt.Mode,
+		FilterHosts: slices.Clone(flt.Hosts),
 	}
 }
 
@@ -88,21 +104,17 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 // flip only upstream_enabled, say, via curl without having to know (and
 // resend) the current TLS preset or User-Agent.
 //
-// TLS preset / custom_hello and upstream enabled/select are independent
-// lifecycles: the TLS dialer is only rebuilt when TLSPreset or CustomHello
-// is present in the patch, and upstream changes go straight to
-// upstreamMgr (which has its own locking) without touching s.dialer at
-// all. New connections pick up every change immediately; in-flight
-// connections are unaffected.
+// TLS preset / custom_hello, the host filter and upstream enabled/select are
+// independent lifecycles: the TLS dialer is only rebuilt when TLSPreset or
+// CustomHello is present in the patch, the filter only when a filter field is,
+// and upstream changes go straight to upstreamMgr (which has its own locking)
+// without touching s.dialer at all. New connections pick up every change
+// immediately; in-flight connections are unaffected.
+//
+// Everything that can fail (TLS dialer, filter, upstream_select) is checked
+// before anything is applied, and upstream_select — the one step that takes
+// effect on its own — runs last, so a rejected patch changes nothing.
 func (s *Server) UpdateConfig(patch config.ConfigPatch) error {
-	if patch.UpstreamSelect != nil {
-		// Validate before touching anything else so a bad upstream_select
-		// can't partially apply the rest of the patch.
-		if err := s.upstreamMgr.Select(*patch.UpstreamSelect); err != nil {
-			return err
-		}
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -134,10 +146,38 @@ func (s *Server) UpdateConfig(patch config.ConfigPatch) error {
 		newHTTP.UserAgent = *patch.UserAgent
 	}
 
+	newFilterCfg := s.cfg.Filter
+	var newFilter *filter.Matcher
+	filterChanged := patch.FilterMode != nil || patch.FilterHosts != nil
+	if filterChanged {
+		if patch.FilterMode != nil {
+			newFilterCfg.Mode = *patch.FilterMode
+		}
+		if patch.FilterHosts != nil {
+			newFilterCfg.Hosts = slices.Clone(*patch.FilterHosts)
+		}
+		f, err := filter.New(newFilterCfg.Mode, newFilterCfg.Hosts)
+		if err != nil {
+			return err
+		}
+		newFilter = f
+		newFilterCfg.Mode = f.Mode()
+	}
+
+	if patch.UpstreamSelect != nil {
+		if err := s.upstreamMgr.Select(*patch.UpstreamSelect); err != nil {
+			return err
+		}
+	}
+
 	s.cfg.TLS = newTLS
 	s.cfg.HTTP = newHTTP
 	if newDialer != nil {
 		s.dialer = newDialer
+	}
+	if filterChanged {
+		s.cfg.Filter = newFilterCfg
+		s.filter = newFilter
 	}
 	s.rewriter = rewrite.New(s.cfg.HTTP, s.upstreamMgr)
 
@@ -180,25 +220,34 @@ func (s *Server) handle(conn net.Conn) {
 		return
 	}
 	if req.Method == http.MethodConnect {
-		s.handleConnect(conn, req, deps)
+		s.handleConnect(conn, br, req, deps)
 	} else {
 		s.handleHTTP(conn, br, req, deps)
 	}
 }
 
-// handleConnect intercepts HTTPS CONNECT tunnels.
+// handleConnect intercepts HTTPS CONNECT tunnels. Hosts the filter excludes
+// from impersonation are tunnelled through untouched instead (see passthrough).
 //   - Client-facing: MITM TLS with a dynamically generated leaf cert from our CA.
 //   - Server-facing: uTLS with the configured fingerprint preset.
 //   - Protocol branch: when the server negotiates h2 and HTTP2.Enabled is true,
 //     use the h2fp transport to send custom SETTINGS/WINDOW_UPDATE/pseudo-headers.
 //     Otherwise fall back to HTTP/1.1 request forwarding.
-func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps connDeps) {
+func (s *Server) handleConnect(clientConn net.Conn, clientBR *bufio.Reader, req *http.Request, deps connDeps) {
 	host, port, err := net.SplitHostPort(req.Host)
 	if err != nil {
 		host = req.Host
 		port = "443"
 	}
 	addr := net.JoinHostPort(host, port)
+
+	// Decided before a certificate is minted or a ClientHello is built: a host
+	// that is not impersonated needs neither, and the client keeps seeing the
+	// origin's real certificate.
+	if !deps.filter.Impersonate(host) {
+		s.passthrough(clientConn, clientBR, addr)
+		return
+	}
 
 	cert, err := s.ca.CertForHost(host)
 	if err != nil {
@@ -241,6 +290,51 @@ func (s *Server) handleConnect(clientConn net.Conn, req *http.Request, deps conn
 	} else {
 		s.tunnelH1(clientTLS, serverConn, deps)
 	}
+}
+
+// passthrough answers a CONNECT by relaying raw bytes between the client and
+// the target, without terminating TLS: no certificate is presented, headers are
+// not rewritten, and the client's own TLS fingerprint reaches the server. The
+// connection still goes out through the current upstream proxy, if one is
+// enabled. clientR is the reader the CONNECT request was parsed from, in case
+// the client already sent bytes after it. Works for non-TLS targets too.
+func (s *Server) passthrough(clientConn net.Conn, clientR io.Reader, addr string) {
+	upstreamName, base := s.upstreamMgr.Current()
+	ctx, cancel := context.WithTimeout(context.Background(), s.upstreamMgr.DialTimeout())
+	serverConn, err := base.DialContext(ctx, "tcp", addr)
+	cancel()
+	if err != nil {
+		log.Printf("dial(%s) via upstream=%s: %v", addr, upstreamName, err)
+		fmt.Fprintf(clientConn, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
+		return
+	}
+	defer serverConn.Close()
+
+	fmt.Fprintf(clientConn, "HTTP/1.1 200 Connection Established\r\n\r\n")
+	log.Printf("PASSTHROUGH %s  upstream=%s", addr, upstreamName)
+	relayRaw(clientConn, clientR, serverConn)
+}
+
+// relayRaw copies bytes both ways until both directions have finished. When one
+// direction ends, the write side of its destination is closed so the peer sees
+// EOF while data may still flow the other way (a client that shuts down its
+// send side must still receive the reply). Unlike relayUpgraded, which ends at
+// the first closed direction, this must not truncate a response.
+func relayRaw(client net.Conn, clientR io.Reader, server net.Conn) {
+	done := make(chan struct{}, 2)
+	pipe := func(dst net.Conn, src io.Reader) {
+		io.Copy(dst, src)
+		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+			cw.CloseWrite()
+		} else {
+			dst.Close()
+		}
+		done <- struct{}{}
+	}
+	go pipe(server, clientR)
+	go pipe(client, server)
+	<-done
+	<-done
 }
 
 // tunnelH2 forwards HTTP requests over an HTTP/2 connection with the configured
@@ -365,9 +459,17 @@ func (s *Server) handleHTTP(clientConn net.Conn, clientBR *bufio.Reader, req *ht
 			serverConn.Close()
 			return
 		}
-		deps.rewriter.Apply(req, deps.preset)
+		// Hosts outside the filter are forwarded as they are: no header
+		// rewriting and no configured header order. Each request is judged on
+		// its own because one client connection may carry requests for several hosts.
+		order := deps.rewriter.Order()
+		if deps.filter.Impersonate(req.Host) {
+			deps.rewriter.Apply(req, deps.preset)
+		} else {
+			order = nil
+		}
 
-		if err := writeRequest(req, serverConn, deps.rewriter.Order()); err != nil {
+		if err := writeRequest(req, serverConn, order); err != nil {
 			serverConn.Close()
 			return
 		}

@@ -15,6 +15,15 @@ type Config struct {
 	HTTP       HTTPConfig     `yaml:"http"`
 	HTTP2      HTTP2Config    `yaml:"http2"`
 	Upstream   UpstreamConfig `yaml:"upstream"`
+	Filter     FilterConfig   `yaml:"filter"`
+}
+
+// FilterConfig limits impersonation to some target hosts. Hosts that are not
+// impersonated are tunnelled through untouched (HTTPS) or forwarded without
+// header rewriting (plain HTTP). Host patterns are validated by package filter.
+type FilterConfig struct {
+	Mode  string   `yaml:"mode"`  // "off" (default) | "include" | "exclude"
+	Hosts []string `yaml:"hosts"` // "example.com" (exact) or "*.example.com" (subdomains only)
 }
 
 // ActiveConfig holds the subset of Config that can be changed at runtime via the management API.
@@ -29,6 +38,9 @@ type ActiveConfig struct {
 	UpstreamSelect            string   `json:"upstream_select"`
 	UpstreamProxies           []string `json:"upstream_proxies"` // names only — never URLs/credentials
 	UpstreamSuppressIPHeaders bool     `json:"upstream_suppress_ip_headers"`
+
+	FilterMode  string   `json:"filter_mode"`
+	FilterHosts []string `json:"filter_hosts"`
 }
 
 // ConfigPatch is a partial update to the runtime-mutable settings, as decoded
@@ -44,6 +56,9 @@ type ConfigPatch struct {
 
 	UpstreamEnabled *bool   `json:"upstream_enabled"`
 	UpstreamSelect  *string `json:"upstream_select"`
+
+	FilterMode  *string   `json:"filter_mode"`
+	FilterHosts *[]string `json:"filter_hosts"`
 }
 
 // UpstreamProxy is one named upstream proxy entry.

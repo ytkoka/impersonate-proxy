@@ -262,6 +262,13 @@ http2:
 
   # HEADERS 帧中伪首部的顺序
   pseudo_header_order: [method, authority, scheme, path]
+
+# Impersonate only some target hosts (default: all). Hosts that are not
+# impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
+# or "*.example.com" (subdomains only, not example.com itself).
+filter:
+  mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
+  hosts: []
 ```
 
 ### 管理 API
@@ -271,7 +278,7 @@ http2:
 | 接口 | 方法 | 说明 |
 |---|---|---|
 | `/api/config` | `GET` | 以 JSON 返回当前设置(包含当前的 `custom_hello` 和上游代理状态) |
-| `/api/config` | `POST` | 部分更新 TLS 预设 / `custom_hello` / 源 IP / User-Agent / 上游代理的启用与选择 — 未提供的字段保持不变 |
+| `/api/config` | `POST` | 部分更新 TLS 预设 / `custom_hello` / 源 IP / User-Agent / 上游代理的启用与选择 / 主机过滤 — 未提供的字段保持不变 |
 | `/api/upstream` | `GET` | 返回上游代理状态: `enabled`、`select`、已配置代理的**名称**(绝不包含 URL/凭据)、以及 IP 头抑制是否生效 |
 
 `POST /api/config` 是真正的部分更新:只发送你想修改的字段,其余的——包括 TLS 预设和上游代理选择——都保持原样。
@@ -311,6 +318,30 @@ curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 更改会立即对新连接生效。将 `mgmt_listen` 设置为空字符串(`""`)可完全禁用该 API。
+
+### 主机过滤
+
+默认会伪装所有主机。若只想伪装部分目标,请设置 `filter`:
+
+```yaml
+filter:
+  mode: "include"          # off(默认) | include | exclude
+  hosts:
+    - "www.example.com"    # 精确匹配的主机
+    - "*.example.com"      # 子域名(不含 example.com 本身)
+```
+
+- `include` 只伪装列表中的主机,`exclude` 伪装列表之外的所有主机,`off` 伪装所有主机。
+- **不**伪装的主机会原样放行。对于 HTTPS,`CONNECT` 隧道按原始字节中继而不终止 TLS,因此客户端看到的是源站真实的证书(这些主机无需信任 CA)和客户端自身的 TLS 指纹,请求头也不会被改写。纯 HTTP 请求在不改写请求头的情况下转发。启用[上游代理](#上游代理)时,两者都会经由上游代理。
+- 匹配时忽略大小写和端口。`example.com` 只匹配该主机;`*.example.com` 匹配任意层级的子域名,但不匹配 `example.com` 本身,因此要同时覆盖根域名时请两者都写。IP 字面量按精确匹配。端口、路径、CIDR 以及 `*` 的其他用法会在启动时或通过管理 API 被报错拒绝。
+- 页面通常还会加载其他主机(CDN、挑战脚本等)。请把它们也列入,否则 WAF 看到的是伪装与真实指纹的混合。被放行的隧道会记录为 `PASSTHROUGH host:port`,便于找出这些主机。
+- 运行时可通过管理 API 的 `filter_mode` 和 `filter_hosts` 修改。`filter_hosts` 会替换整个列表,被拒绝的补丁不会改变任何设置。已建立的连接不受影响。
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"filter_mode":"include","filter_hosts":["www.example.com","*.example.com"]}'
+```
 
 ### 浏览器指纹对照表
 
@@ -586,6 +617,7 @@ impersonate-proxy/
 ├── upstream/                 # 上游 SOCKS5/HTTP-CONNECT 代理:管理器、dialer、选择逻辑
 ├── proxy/proxy.go            # 代理服务器:CONNECT 处理、协议分支、运行时配置
 ├── rewrite/headers.go        # HTTP 请求头改写(UA、顺序、增删、IP 伪装)
+├── filter/filter.go          # 主机过滤:决定哪些目标被伪装
 ├── mgmt/server.go            # 管理 HTTP API(/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
@@ -636,6 +668,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **请求 trailer**:`Transfer-Encoding: chunked` 的请求体可以转发,但其 trailer 会被丢弃。
 - **`Expect: 100-continue`**:由代理自行应答并删除该请求头,因此客户端会在服务器接受请求之前发送请求体。
 - **WebSocket**:`wss://` 仅支持 HTTP/1.1。服务器使用 h2 时,代理会为升级请求另开一条连接,其 ClientHello 与浏览器的 WebSocket 连接一样只在 ALPN 中提供 `http/1.1` 且不含 ALPS 扩展,因此该连接的 JA3/JA4 与 h2 连接不同,且尚未与真实浏览器抓包对照。升级后的数据按字节原样转发。不支持:经 `CONNECT` 的 `ws://`(隧道默认为 TLS),以及基于 HTTP/2 的 WebSocket(RFC 8441)。
+- **主机过滤与纯 HTTP**:发往未伪装主机的请求仍由代理重新序列化,因此请求头顺序不会保留(HTTPS 放行则按字节原样中继)。参见[主机过滤](#主机过滤)。
 - **HTTP/2 下的大请求体**:请求体以单个 DATA 帧发送且不做流量控制,超过服务器帧大小上限(通常为 16 KB)时可能被 `FRAME_SIZE_ERROR` 拒绝。HTTP/1.1 不受影响。
 - **不支持 QUIC / HTTP/3**:超出本项目范围。
 - **User-Agent(仅 HTTP 请求头)**:代理会改写 HTTP 的 `User-Agent` 请求头,但 JavaScript 的 `navigator.userAgent` 由浏览器自行设置,不受影响。如需同时覆盖两者,请使用 Chrome 的 `--user-agent` 启动参数。

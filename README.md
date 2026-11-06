@@ -262,6 +262,13 @@ http2:
 
   # Order of pseudo-headers in the HEADERS frame
   pseudo_header_order: [method, authority, scheme, path]
+
+# Impersonate only some target hosts (default: all). Hosts that are not
+# impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
+# or "*.example.com" (subdomains only, not example.com itself).
+filter:
+  mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
+  hosts: []
 ```
 
 ### Management API
@@ -271,7 +278,7 @@ When the proxy starts it also exposes a lightweight HTTP API on `mgmt_listen` (d
 | Endpoint | Method | Description |
 |---|---|---|
 | `/api/config` | `GET` | Return active settings as JSON, including the current `custom_hello` and upstream state |
-| `/api/config` | `POST` | Partially update TLS preset / `custom_hello` / client IP / User-Agent / upstream enabled+select — omitted fields are left unchanged |
+| `/api/config` | `POST` | Partially update TLS preset / `custom_hello` / client IP / User-Agent / upstream enabled+select / host filter — omitted fields are left unchanged |
 | `/api/upstream` | `GET` | Return upstream state: `enabled`, `select`, configured proxy **names** (never URLs/credentials), and whether IP-header suppression is active |
 
 `POST /api/config` is a genuine partial update: send only the field you want to change and everything else — including TLS preset and upstream selection — is left as-is.
@@ -312,6 +319,30 @@ curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 Changes take effect immediately for new connections. Set `mgmt_listen: ""` to disable the API entirely.
+
+### Host filter
+
+By default every host is impersonated. To impersonate only some targets, set `filter`:
+
+```yaml
+filter:
+  mode: "include"          # off (default) | include | exclude
+  hosts:
+    - "www.example.com"    # exact host
+    - "*.example.com"      # any subdomain, but not example.com itself
+```
+
+- `include` impersonates only the listed hosts, `exclude` impersonates every host except the listed ones, and `off` impersonates everything.
+- A host that is **not** impersonated is passed through untouched. For HTTPS, the `CONNECT` tunnel is relayed as raw bytes without terminating TLS, so the client sees the origin's real certificate (no CA trust is needed for these hosts) and its own TLS fingerprint, and no headers are rewritten. Plain-HTTP requests are forwarded without header rewriting. Both still go through the [upstream proxy](#upstream-proxy) when it is enabled.
+- Matching ignores case and port. `example.com` matches exactly that host; `*.example.com` matches subdomains at any depth but not `example.com` itself, so list both to cover the apex too. IP literals match exactly. Ports, paths, CIDR ranges and any other use of `*` are rejected with an error at startup or from the management API.
+- A page usually loads other hosts as well (CDNs, challenge scripts). List those too, or the WAF will see a mix of impersonated and real fingerprints. Passed-through tunnels are logged as `PASSTHROUGH host:port`, which helps find them.
+- Change it at runtime with `filter_mode` and `filter_hosts` through the management API. `filter_hosts` replaces the whole list, and a rejected patch changes nothing. In-flight connections are unaffected.
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"filter_mode":"include","filter_hosts":["www.example.com","*.example.com"]}'
+```
 
 ### Browser fingerprint reference
 
@@ -589,6 +620,7 @@ impersonate-proxy/
 ├── upstream/                 # Upstream SOCKS5/HTTP-CONNECT proxy: manager, dialers, selection
 ├── proxy/proxy.go            # Proxy server: CONNECT handling, protocol branch, runtime config
 ├── rewrite/headers.go        # HTTP header rewriting (UA, order, add/remove, IP spoof)
+├── filter/filter.go          # Host filter: which targets get impersonated
 ├── mgmt/server.go            # Management HTTP API (/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
@@ -639,6 +671,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **Request trailers**: `Transfer-Encoding: chunked` request bodies are forwarded, but their trailers are dropped.
 - **`Expect: 100-continue`**: The proxy answers this itself and strips the header, so the client sends its body before the server has accepted the request.
 - **WebSocket**: `wss://` is supported over HTTP/1.1 only. When the server speaks h2, the proxy opens a second connection for the upgrade with a ClientHello that offers only `http/1.1` ALPN and no ALPS extension (as browsers do for WebSocket sockets); that hello's JA3/JA4 therefore differs from the page's h2 connection, and has not been compared against a real browser capture. The upgraded stream is relayed byte for byte. Not supported: `ws://` through `CONNECT` (the tunnel assumes TLS), and WebSocket over HTTP/2 (RFC 8441).
+- **Host filter and plain HTTP**: requests to hosts that are not impersonated are re-serialized by the proxy, so their header order is not preserved (HTTPS passthrough is relayed byte for byte). See [Host filter](#host-filter).
 - **Large request bodies over HTTP/2**: The body is sent as a single DATA frame without flow control, so a server can reject bodies above its frame size limit (typically 16 KB) with `FRAME_SIZE_ERROR`. HTTP/1.1 is not affected.
 - **No QUIC / HTTP/3**: Out of scope.
 - **User-Agent (HTTP header only)**: The proxy rewrites the `User-Agent` HTTP header, but JavaScript's `navigator.userAgent` is set by the browser independently and is unaffected. Use Chrome's `--user-agent` launch flag to override both simultaneously.

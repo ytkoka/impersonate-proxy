@@ -90,7 +90,10 @@ func testDeps(t *testing.T) (*Server, connDeps) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(&config.Config{}, nil, nil, mgr)
+	s, err := New(&config.Config{}, nil, nil, mgr)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return s, connDeps{
 		rewriter: rewrite.New(config.HTTPConfig{}, mgr),
 		h2cfg:    config.HTTP2Config{Enabled: true, PseudoHeaderOrder: []string{"method", "authority", "scheme", "path"}},

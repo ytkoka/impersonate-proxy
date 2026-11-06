@@ -262,6 +262,13 @@ http2:
 
   # HEADERSフレーム内の疑似ヘッダーの順序
   pseudo_header_order: [method, authority, scheme, path]
+
+# Impersonate only some target hosts (default: all). Hosts that are not
+# impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
+# or "*.example.com" (subdomains only, not example.com itself).
+filter:
+  mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
+  hosts: []
 ```
 
 ### 管理API
@@ -271,7 +278,7 @@ http2:
 | エンドポイント | メソッド | 説明 |
 |---|---|---|
 | `/api/config` | `GET` | 現在の設定をJSONで返す(現在の `custom_hello` とアップストリームの状態を含む) |
-| `/api/config` | `POST` | TLSプリセット / `custom_hello` / 送信元IP / User-Agent / アップストリームの有効化・選択を部分的に更新する — 指定しなかったフィールドは変更されない |
+| `/api/config` | `POST` | TLSプリセット / `custom_hello` / 送信元IP / User-Agent / アップストリームの有効化・選択 / ホストフィルタを部分的に更新する — 指定しなかったフィールドは変更されない |
 | `/api/upstream` | `GET` | アップストリームの状態を返す: `enabled`、`select`、設定済みプロキシの**名前**(URLや認証情報は含まない)、IPヘッダー抑制が有効かどうか |
 
 `POST /api/config` は本当の意味での部分更新です。変更したいフィールドだけを送れば、TLSプリセットやアップストリームの選択を含め、それ以外はそのまま維持されます。
@@ -312,6 +319,30 @@ curl -s http://127.0.0.1:8081/api/upstream
 ```
 
 変更は新規接続から即座に反映されます。APIを完全に無効化するには `mgmt_listen: ""` を設定してください。
+
+### ホストフィルタ
+
+デフォルトではすべてのホストを偽装します。一部のターゲットだけを偽装するには `filter` を設定します:
+
+```yaml
+filter:
+  mode: "include"          # off(デフォルト) | include | exclude
+  hosts:
+    - "www.example.com"    # 完全一致のホスト
+    - "*.example.com"      # サブドメイン(example.com 自体は含まない)
+```
+
+- `include` は一覧のホストだけを、`exclude` は一覧のホスト以外のすべてを偽装します。`off` はすべてを偽装します。
+- 偽装**しない**ホストは何も加工せずに通します。HTTPSでは `CONNECT` トンネルをTLSを終端せずに生のバイトのまま中継するため、クライアントにはオリジンの本物の証明書が見え(これらのホストにはCAの信頼が不要)、TLSフィンガープリントもクライアント本来のものになり、ヘッダーも書き換えません。平文HTTPのリクエストはヘッダーを書き換えずに転送します。どちらも[アップストリームプロキシ](#アップストリームプロキシ)が有効なら、そこを経由します。
+- 照合は大文字小文字とポートを無視します。`example.com` はそのホストだけに一致し、`*.example.com` は任意の深さのサブドメインに一致しますが `example.com` 自体には一致しません。apexも対象にするなら両方を書いてください。IPリテラルは完全一致です。ポート、パス、CIDR、その他の `*` の使い方は、起動時または管理APIでエラーとして拒否されます。
+- ページは通常、他のホスト(CDN、チャレンジ用スクリプトなど)も読み込みます。それらも一覧に入れないと、WAFには偽装した通信と本来の通信が混在して見えます。素通しにしたトンネルは `PASSTHROUGH host:port` とログに出るので、洗い出しに使えます。
+- 実行時は管理APIの `filter_mode` と `filter_hosts` で変更できます。`filter_hosts` は一覧全体を置き換え、拒否されたパッチは何も変更しません。確立済みの接続には影響しません。
+
+```bash
+curl -s -X POST http://127.0.0.1:8081/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"filter_mode":"include","filter_hosts":["www.example.com","*.example.com"]}'
+```
 
 ### ブラウザ別フィンガープリント早見表
 
@@ -587,6 +618,7 @@ impersonate-proxy/
 ├── upstream/                 # アップストリームSOCKS5/HTTP-CONNECTプロキシ: マネージャー、ダイアラー、選択ロジック
 ├── proxy/proxy.go            # プロキシサーバー: CONNECT処理、プロトコル分岐、実行時設定
 ├── rewrite/headers.go        # HTTPヘッダー書き換え(UA、順序、追加/削除、IP偽装)
+├── filter/filter.go          # ホストフィルタ: 偽装する対象ホストの判定
 ├── mgmt/server.go            # 管理HTTP API(/api/config, /api/upstream)
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
@@ -637,6 +669,7 @@ sudo security delete-certificate -c "impersonate-proxy CA" /Library/Keychains/Sy
 - **リクエストのトレーラー**: `Transfer-Encoding: chunked` のリクエストボディは転送されますが、トレーラーは破棄されます。
 - **`Expect: 100-continue`**: プロキシ自身が応答してヘッダーを削除するため、クライアントはサーバーがリクエストを受け入れる前にボディを送信します。
 - **WebSocket**: `wss://` はHTTP/1.1のみ対応です。サーバーがh2の場合、アップグレード用に別の接続を開き、ブラウザのWebSocketと同様にALPNを `http/1.1` のみ・ALPS拡張なしにしたClientHelloを使います。そのためこの接続のJA3/JA4はh2接続とは異なり、実ブラウザのキャプチャとの照合は未実施です。アップグレード後の通信はバイト単位でそのまま中継します。非対応: `CONNECT` 経由の `ws://`(トンネルはTLS前提)、HTTP/2上のWebSocket(RFC 8441)。
+- **ホストフィルタと平文HTTP**: 偽装しないホストへのリクエストもプロキシが再構築して送るため、ヘッダーの順序は保持されません(HTTPSの素通しはバイト単位でそのまま中継します)。[ホストフィルタ](#ホストフィルタ)を参照。
 - **HTTP/2での大きなリクエストボディ**: ボディはフロー制御なしで1つのDATAフレームとして送信されるため、サーバーのフレームサイズ上限(通常16KB)を超えると `FRAME_SIZE_ERROR` で拒否されることがあります。HTTP/1.1には影響しません。
 - **QUIC / HTTP/3非対応**: 対象外です。
 - **User-Agent(HTTPヘッダーのみ)**: プロキシはHTTPの `User-Agent` ヘッダーを書き換えますが、JavaScriptの `navigator.userAgent` はブラウザが独自に設定するため影響を受けません。両方を同時に上書きするにはChromeの `--user-agent` 起動オプションを使用してください。

@@ -117,6 +117,12 @@ func describePatch(p config.ConfigPatch) string {
 	if p.UpstreamSelect != nil {
 		parts = append(parts, fmt.Sprintf("upstream_select=%s", *p.UpstreamSelect))
 	}
+	if p.FilterMode != nil {
+		parts = append(parts, fmt.Sprintf("filter_mode=%s", *p.FilterMode))
+	}
+	if p.FilterHosts != nil {
+		parts = append(parts, fmt.Sprintf("filter_hosts=%q", *p.FilterHosts))
+	}
 	if len(parts) == 0 {
 		return "(empty patch)"
 	}

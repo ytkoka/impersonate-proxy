@@ -36,7 +36,10 @@ func main() {
 		log.Fatalf("init upstream: %v", err)
 	}
 
-	srv := proxy.New(cfg, ca, dialer, upstreamMgr)
+	srv, err := proxy.New(cfg, ca, dialer, upstreamMgr)
+	if err != nil {
+		log.Fatalf("init proxy: %v", err)
+	}
 	if cfg.MgmtListen != "" {
 		go func() {
 			if err := mgmt.ListenAndServe(cfg.MgmtListen, srv); err != nil {

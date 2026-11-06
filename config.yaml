@@ -109,6 +109,13 @@ http2:
     - scheme
     - path
 
+# Impersonate only some target hosts (default: all). Hosts that are not
+# impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
+# or "*.example.com" (subdomains only, not example.com itself).
+filter:
+  mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
+  hosts: []
+
 # Route target connections through an upstream SOCKS5 / HTTP CONNECT proxy
 # instead of dialing direct, so the actual egress IP changes (not just the
 # X-Forwarded-For / True-Client-IP headers). Only tunnel-capable schemes are
