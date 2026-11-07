@@ -608,6 +608,65 @@ Key fields to check:
 | `user_agent` | User-Agent as seen by the server |
 | `ip` | Source IP as seen by the server — verify `X-Forwarded-For` / `True-Client-IP` spoofing here |
 
+## MCP server (optional)
+
+`impersonate-mcp/` is a stdio [MCP](https://modelcontextprotocol.io) server, built on the official [Go SDK](https://github.com/modelcontextprotocol/go-sdk), that lets an AI agent configure the proxy and check the result. It is a plain client of the [Management API](#management-api) and reuses the `config` package types. It is a separate Go module: `make build` does not build it and the Docker image does not include it.
+
+```bash
+make build-mcp   # → impersonate-mcp/impersonate-mcp
+make test-mcp
+```
+
+Register it with your MCP client (the proxy must be running). For Claude Code:
+
+```bash
+claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+```
+
+Or in any client's JSON config:
+
+```json
+{
+  "mcpServers": {
+    "impersonate": {
+      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
+    }
+  }
+}
+```
+
+### Tools
+
+| Tool | Description |
+|---|---|
+| `get_config` | Return the active runtime settings (TLS preset, `custom_hello`, User-Agent, client IP, upstream state, host filter) |
+| `set_tls_preset` | Switch the TLS preset (`chrome`, `firefox`, `safari`, …) |
+| `set_custom_hello` | Set an arbitrary ClientHello (cipher suites, curves, versions, extensions) and switch the preset to `custom` |
+| `set_user_agent` | Set the User-Agent (`""` = leave as is, `"auto"` = derive from the preset) |
+| `set_client_ip` | Set the spoofed client IP (`""` = off) |
+| `set_upstream` | Enable/disable the upstream proxy and/or select one by name (or `rotate` / `random`) |
+| `verify_fingerprint` | Fetch `tls.peet.ws/api/all` through the proxy and summarise `ja3_hash`, `ja4`, `akamai_fingerprint`, `user_agent` and `ip` |
+
+### Options
+
+| Flag | Environment variable | Default | Description |
+|---|---|---|---|
+| `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | Management API base URL |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | derived from the proxy's `listen` | Proxy used by `verify_fingerprint` |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | system trust store | Path to the proxy's `ca.crt`, so `verify_fingerprint` trusts the MITM certificate |
+| `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | Fingerprint echo endpoint |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | Register only `get_config` and `verify_fingerprint`; every tool that changes settings is hidden |
+
+### Notes
+
+- The management API has no authentication, and this server lets an agent change the proxy's settings. Keep `mgmt_listen` on loopback (a warning is logged otherwise), and use `--read-only` when the agent should only observe.
+- `verify_fingerprint` sends one request to an external service (`tls.peet.ws` by default). If the [host filter](#host-filter) excludes that host the result is not impersonated, and the tool says so in `warnings`.
+- `set_upstream` can only toggle and select proxies that are already in `config.yaml`; adding proxies at runtime is not supported by the management API.
+- The HTTP/2 fingerprint (`akamai_fingerprint`) is set by `http2` in `config.yaml`, not by the TLS preset, so switching the preset does not change it.
+- Logs go to stderr; stdout is reserved for the MCP protocol.
+
 ## Project structure
 
 ```
@@ -622,6 +681,7 @@ impersonate-proxy/
 ├── rewrite/headers.go        # HTTP header rewriting (UA, order, add/remove, IP spoof)
 ├── filter/filter.go          # Host filter: which targets get impersonated
 ├── mgmt/server.go            # Management HTTP API (/api/config, /api/upstream)
+├── impersonate-mcp/          # Optional MCP server (separate Go module): drives the management API
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # Toolbar popup UI
@@ -643,6 +703,8 @@ impersonate-proxy/
 | Target | Description |
 |--------|-------------|
 | `make build` | Compile the binary |
+| `make build-mcp` | Build the optional MCP server to `impersonate-mcp/impersonate-mcp` ([see MCP server](#mcp-server-optional)) |
+| `make test-mcp` | Run the MCP server's tests |
 | `make run` | Build, kill any existing instance, and start |
 | `make trust-ca` | Add `ca.crt` to the macOS system keychain (requires sudo) |
 | `make clean` | Remove the binary, `ca.crt`, and `ca.key` |

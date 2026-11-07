@@ -1,16 +1,24 @@
 GO := $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
-.PHONY: build run clean trust-ca docker-build docker-run docker-stop
+.PHONY: build build-mcp test-mcp run clean trust-ca docker-build docker-run docker-stop
 
 build:
 	$(GO) build -o impersonate-proxy .
+
+# Optional MCP server (separate Go module in impersonate-mcp/) that drives the
+# proxy's management API. Not built by `make build`. See README "MCP server".
+build-mcp:
+	cd impersonate-mcp && $(GO) build -o impersonate-mcp .
+
+test-mcp:
+	cd impersonate-mcp && $(GO) test ./...
 
 run: build
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 	./impersonate-proxy -config config.yaml
 
 clean:
-	rm -f impersonate-proxy ca.crt ca.key
+	rm -f impersonate-proxy impersonate-mcp/impersonate-mcp ca.crt ca.key
 
 # macOS: add CA to system keychain (requires sudo)
 trust-ca:

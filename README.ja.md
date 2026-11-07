@@ -606,6 +606,65 @@ curl -s --proxy http://127.0.0.1:8080 --cacert ca.crt \
 | `user_agent` | サーバー側から見えるUser-Agent |
 | `ip` | サーバー側から見える送信元IP — `X-Forwarded-For` / `True-Client-IP` の偽装をここで確認 |
 
+## MCPサーバー(オプション)
+
+`impersonate-mcp/` は、公式[Go SDK](https://github.com/modelcontextprotocol/go-sdk)で作った stdio 方式の [MCP](https://modelcontextprotocol.io) サーバーです。AIエージェントがプロキシの設定変更と結果確認を行えます。[管理API](#管理api)を呼ぶだけのクライアントで、`config` パッケージの型を再利用しています。独立した Go モジュールのため、`make build` ではビルドされず、Docker イメージにも含まれません。
+
+```bash
+make build-mcp   # → impersonate-mcp/impersonate-mcp
+make test-mcp
+```
+
+MCPクライアントに登録します(プロキシを起動しておく必要があります)。Claude Code の場合:
+
+```bash
+claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+```
+
+その他のクライアントの JSON 設定では:
+
+```json
+{
+  "mcpServers": {
+    "impersonate": {
+      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
+    }
+  }
+}
+```
+
+### ツール
+
+| ツール | 説明 |
+|---|---|
+| `get_config` | 現在の実行時設定(TLSプリセット、`custom_hello`、User-Agent、クライアントIP、アップストリーム状態、ホストフィルタ)を返す |
+| `set_tls_preset` | TLSプリセット(`chrome`、`firefox`、`safari` など)を切り替える |
+| `set_custom_hello` | 任意のClientHello(暗号スイート・曲線・バージョン・拡張)を設定し、プリセットを `custom` にする |
+| `set_user_agent` | User-Agentを設定する(`""` = そのまま、`"auto"` = プリセットから自動決定) |
+| `set_client_ip` | 偽装するクライアントIPを設定する(`""` = 無効) |
+| `set_upstream` | アップストリームプロキシの有効/無効、および名前(または `rotate` / `random`)での選択 |
+| `verify_fingerprint` | プロキシ経由で `tls.peet.ws/api/all` を取得し、`ja3_hash`・`ja4`・`akamai_fingerprint`・`user_agent`・`ip` を要約する |
+
+### オプション
+
+| フラグ | 環境変数 | デフォルト | 説明 |
+|---|---|---|---|
+| `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | 管理APIのベースURL |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | プロキシの `listen` から自動決定 | `verify_fingerprint` が使うプロキシ |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | システムの信頼ストア | プロキシの `ca.crt` のパス。`verify_fingerprint` がMITM証明書を信頼するために使う |
+| `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | フィンガープリントを返すエンドポイント |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | `get_config` と `verify_fingerprint` のみを公開し、設定を変更するツールをすべて隠す |
+
+### 注意点
+
+- 管理APIには認証がなく、このサーバーはエージェントにプロキシ設定の変更を許可します。`mgmt_listen` はループバックのままにしてください(そうでない場合は警告ログが出ます)。エージェントに観測だけをさせたい場合は `--read-only` を使ってください。
+- `verify_fingerprint` は外部サービス(デフォルトは `tls.peet.ws`)へ1回リクエストします。[ホストフィルタ](#ホストフィルタ)でそのホストが対象外だと偽装されない結果になり、ツールが `warnings` で知らせます。
+- `set_upstream` で操作できるのは `config.yaml` に定義済みのプロキシの切り替えと選択のみです。実行時にプロキシを追加することは管理APIがサポートしていません。
+- HTTP/2フィンガープリント(`akamai_fingerprint`)は TLS プリセットではなく `config.yaml` の `http2` で決まるため、プリセットを切り替えても変わりません。
+- ログは stderr に出力されます。stdout は MCP プロトコル専用です。
+
 ## プロジェクト構成
 
 ```
@@ -620,6 +679,7 @@ impersonate-proxy/
 ├── rewrite/headers.go        # HTTPヘッダー書き換え(UA、順序、追加/削除、IP偽装)
 ├── filter/filter.go          # ホストフィルタ: 偽装する対象ホストの判定
 ├── mgmt/server.go            # 管理HTTP API(/api/config, /api/upstream)
+├── impersonate-mcp/          # オプションのMCPサーバー(独立Goモジュール): 管理APIを操作
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # ツールバーポップアップUI
@@ -641,6 +701,8 @@ impersonate-proxy/
 | ターゲット | 説明 |
 |--------|-------------|
 | `make build` | バイナリをコンパイル |
+| `make build-mcp` | オプションのMCPサーバーを `impersonate-mcp/impersonate-mcp` にビルド([MCPサーバー](#mcpサーバーオプション)参照) |
+| `make test-mcp` | MCPサーバーのテストを実行 |
 | `make run` | ビルドし、既存プロセスを終了させてから起動 |
 | `make trust-ca` | `ca.crt` をmacOSシステムキーチェーンに追加(sudoが必要) |
 | `make clean` | バイナリ、`ca.crt`、`ca.key` を削除 |

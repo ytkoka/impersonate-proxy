@@ -605,6 +605,65 @@ curl -s --proxy http://127.0.0.1:8080 --cacert ca.crt \
 | `user_agent` | 服务器看到的 User-Agent |
 | `ip` | 服务器看到的源 IP — 可在此确认 `X-Forwarded-For` / `True-Client-IP` 的伪装效果 |
 
+## MCP 服务器(可选)
+
+`impersonate-mcp/` 是基于官方 [Go SDK](https://github.com/modelcontextprotocol/go-sdk) 构建的 stdio 方式 [MCP](https://modelcontextprotocol.io) 服务器,让 AI 智能体可以配置代理并检查结果。它只是[管理 API](#管理-api)的客户端,并复用 `config` 包中的类型。它是独立的 Go 模块:`make build` 不会构建它,Docker 镜像也不包含它。
+
+```bash
+make build-mcp   # → impersonate-mcp/impersonate-mcp
+make test-mcp
+```
+
+将其注册到你的 MCP 客户端(需先启动代理)。以 Claude Code 为例:
+
+```bash
+claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+```
+
+或在任意客户端的 JSON 配置中:
+
+```json
+{
+  "mcpServers": {
+    "impersonate": {
+      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
+    }
+  }
+}
+```
+
+### 工具
+
+| 工具 | 说明 |
+|---|---|
+| `get_config` | 返回当前运行时设置(TLS 预设、`custom_hello`、User-Agent、客户端 IP、上游状态、主机过滤) |
+| `set_tls_preset` | 切换 TLS 预设(`chrome`、`firefox`、`safari` 等) |
+| `set_custom_hello` | 设置任意 ClientHello(密码套件、曲线、版本、扩展),并将预设切换为 `custom` |
+| `set_user_agent` | 设置 User-Agent(`""` = 保持原样,`"auto"` = 根据预设自动生成) |
+| `set_client_ip` | 设置伪造的客户端 IP(`""` = 关闭) |
+| `set_upstream` | 启用/禁用上游代理,和/或按名称(或 `rotate` / `random`)选择 |
+| `verify_fingerprint` | 通过代理获取 `tls.peet.ws/api/all`,并汇总 `ja3_hash`、`ja4`、`akamai_fingerprint`、`user_agent` 和 `ip` |
+
+### 选项
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+|---|---|---|---|
+| `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | 管理 API 的基础 URL |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | 根据代理的 `listen` 自动推导 | `verify_fingerprint` 使用的代理 |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | 系统信任库 | 代理 `ca.crt` 的路径,使 `verify_fingerprint` 信任 MITM 证书 |
+| `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | 返回指纹的回显端点 |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | 只注册 `get_config` 和 `verify_fingerprint`,隐藏所有会修改设置的工具 |
+
+### 注意事项
+
+- 管理 API 没有认证,而此服务器允许智能体修改代理设置。请让 `mgmt_listen` 保持在回环地址(否则会输出警告日志);若只希望智能体观察,请使用 `--read-only`。
+- `verify_fingerprint` 会向外部服务(默认 `tls.peet.ws`)发送一次请求。如果[主机过滤](#主机过滤)排除了该主机,结果将不是伪装后的指纹,工具会在 `warnings` 中提示。
+- `set_upstream` 只能切换和选择 `config.yaml` 中已定义的代理;管理 API 不支持在运行时添加代理。
+- HTTP/2 指纹(`akamai_fingerprint`)由 `config.yaml` 中的 `http2` 决定,而不是 TLS 预设,因此切换预设不会改变它。
+- 日志输出到 stderr;stdout 专用于 MCP 协议。
+
 ## 项目结构
 
 ```
@@ -619,6 +678,7 @@ impersonate-proxy/
 ├── rewrite/headers.go        # HTTP 请求头改写(UA、顺序、增删、IP 伪装)
 ├── filter/filter.go          # 主机过滤:决定哪些目标被伪装
 ├── mgmt/server.go            # 管理 HTTP API(/api/config, /api/upstream)
+├── impersonate-mcp/          # 可选的 MCP 服务器(独立 Go 模块):操作管理 API
 ├── chrome-extension/
 │   ├── manifest.json         # Manifest V3
 │   ├── popup.html            # 工具栏弹出窗口 UI
@@ -640,6 +700,8 @@ impersonate-proxy/
 | 目标 | 说明 |
 |--------|-------------|
 | `make build` | 编译二进制文件 |
+| `make build-mcp` | 将可选的 MCP 服务器构建为 `impersonate-mcp/impersonate-mcp`(参见 [MCP 服务器](#mcp-服务器可选)) |
+| `make test-mcp` | 运行 MCP 服务器的测试 |
 | `make run` | 构建、结束已有实例并启动 |
 | `make trust-ca` | 将 `ca.crt` 添加到 macOS 系统钥匙串(需要 sudo) |
 | `make clean` | 删除二进制文件、`ca.crt` 和 `ca.key` |
