@@ -8,6 +8,7 @@ RUN go mod download
 
 COPY *.go ./
 COPY config/ ./config/
+COPY filter/ ./filter/
 COPY fp/ ./fp/
 COPY h2fp/ ./h2fp/
 COPY mgmt/ ./mgmt/
