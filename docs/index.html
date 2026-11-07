@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>impersonate-proxy — TLS/HTTP2 fingerprint proxy for WAF testing</title>
-<meta name="description" content="A local MITM proxy that controls TLS (JA3/JA4), HTTP/2, header order, User-Agent and source IP fingerprints — with a Chrome extension for live switching.">
+<meta name="description" content="A local MITM proxy that controls TLS (JA3/JA4), HTTP/2, header order, User-Agent and source IP fingerprints — with a Chrome extension for live switching and an optional MCP server for AI agents.">
 <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
 <style>
   :root{
@@ -227,6 +227,7 @@
       <a href="#features">Features</a>
       <a href="#quickstart">Quick Start</a>
       <a href="#extension">Chrome Extension</a>
+      <a href="#mcp">MCP</a>
       <a href="#verify">Verifying</a>
       <a class="btn-ghost" href="https://github.com/ytkoka/impersonate-proxy">GitHub</a>
     </nav>
@@ -443,6 +444,34 @@ http2:
           <div class="install-opt"><b>Option B — Load unpacked:</b> <span>open <code>chrome://extensions</code>, enable Developer mode, click Load unpacked, select the <code>chrome-extension/</code> folder.</span></div>
         </div>
       </div>
+    </div>
+  </section>
+
+  <section id="mcp" class="wrap">
+    <div class="section-head">
+      <div class="eyebrow">MCP server · optional</div>
+      <h2>Let an AI agent drive the proxy</h2>
+      <p class="section-desc">A stdio <a href="https://modelcontextprotocol.io">MCP</a> server in <code>impersonate-mcp/</code> wraps the management API, so an agent can switch fingerprints and check the result in one conversation.</p>
+    </div>
+    <table class="layer-table" style="margin-top:0;">
+      <tr><th>Tool</th><th>What it does</th></tr>
+      <tr><td>get_config</td><td>Show the active runtime settings</td></tr>
+      <tr><td>set_tls_preset</td><td>Switch the TLS preset (chrome, firefox, safari, …)</td></tr>
+      <tr><td>set_custom_hello</td><td>Set an arbitrary ClientHello and switch to the <code>custom</code> preset</td></tr>
+      <tr><td>set_user_agent</td><td>Set the User-Agent (<code>"auto"</code> derives it from the preset)</td></tr>
+      <tr><td>set_client_ip</td><td>Set the spoofed client IP</td></tr>
+      <tr><td>set_upstream</td><td>Enable/disable the upstream proxy and select one by name</td></tr>
+      <tr><td>verify_fingerprint</td><td>Fetch <code>tls.peet.ws</code> through the proxy and summarise <code>ja3_hash</code>, <code>ja4</code>, <code>akamai_fingerprint</code>, <code>user_agent</code> and <code>ip</code></td></tr>
+    </table>
+    <pre class="code" style="margin-top:24px;"><span class="c"># build — prints the binary's absolute path</span>
+make build-mcp
+
+<span class="c"># register with Claude Code (command = the binary, not the directory)</span>
+claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp \
+  --ca-cert /path/to/impersonate-proxy/ca.crt</pre>
+    <div class="install-opts">
+      <div class="install-opt"><b>Opt-in:</b> <span>a separate Go module — <code>make build</code> and the Docker image don't include it.</span></div>
+      <div class="install-opt"><b>Read-only mode:</b> <span>pass <code>--read-only</code> to expose only <code>get_config</code> and <code>verify_fingerprint</code>. The management API has no authentication, so keep it on loopback.</span> <a href="https://github.com/ytkoka/impersonate-proxy#mcp-server-optional">Full MCP docs →</a></div>
     </div>
   </section>
 
