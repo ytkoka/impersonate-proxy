@@ -620,7 +620,7 @@ make test-mcp
 Register it with your MCP client (the proxy must be running). For Claude Code:
 
 ```bash
-claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp --ca-cert /path/to/impersonate-proxy/ca.crt
 ```
 
 Or in any client's JSON config:
@@ -629,13 +629,15 @@ Or in any client's JSON config:
 {
   "mcpServers": {
     "impersonate": {
-      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
-      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "command": "/path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/path/to/impersonate-proxy/ca.crt"],
       "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
     }
   }
 }
 ```
+
+> **`command` must be the binary, not a directory.** The executable is `impersonate-mcp/impersonate-mcp` *inside* the clone; `make build-mcp` prints its absolute path when it finishes. `/path/to/impersonate-proxy` in the examples above is your clone.
 
 ### Tools
 

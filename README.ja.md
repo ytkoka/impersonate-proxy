@@ -618,7 +618,7 @@ make test-mcp
 MCPクライアントに登録します(プロキシを起動しておく必要があります)。Claude Code の場合:
 
 ```bash
-claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp --ca-cert /path/to/impersonate-proxy/ca.crt
 ```
 
 その他のクライアントの JSON 設定では:
@@ -627,13 +627,15 @@ claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-
 {
   "mcpServers": {
     "impersonate": {
-      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
-      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "command": "/path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/path/to/impersonate-proxy/ca.crt"],
       "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
     }
   }
 }
 ```
+
+> **`command` にはディレクトリではなくバイナリを指定します。** 実行ファイルはクローン内の `impersonate-mcp/impersonate-mcp` で、`make build-mcp` の終了時に絶対パスが表示されます。上の例の `/path/to/impersonate-proxy` はクローン先のパスです。
 
 ### ツール
 

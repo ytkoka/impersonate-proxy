@@ -617,7 +617,7 @@ make test-mcp
 将其注册到你的 MCP 客户端(需先启动代理)。以 Claude Code 为例:
 
 ```bash
-claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-cert /abs/path/to/ca.crt
+claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp --ca-cert /path/to/impersonate-proxy/ca.crt
 ```
 
 或在任意客户端的 JSON 配置中:
@@ -626,13 +626,15 @@ claude mcp add impersonate -- /abs/path/to/impersonate-mcp/impersonate-mcp --ca-
 {
   "mcpServers": {
     "impersonate": {
-      "command": "/abs/path/to/impersonate-mcp/impersonate-mcp",
-      "args": ["--ca-cert", "/abs/path/to/ca.crt"],
+      "command": "/path/to/impersonate-proxy/impersonate-mcp/impersonate-mcp",
+      "args": ["--ca-cert", "/path/to/impersonate-proxy/ca.crt"],
       "env": { "IMPERSONATE_MGMT_URL": "http://127.0.0.1:8081" }
     }
   }
 }
 ```
+
+> **`command` 必须是可执行文件,而不是目录。** 可执行文件位于克隆目录内的 `impersonate-mcp/impersonate-mcp`,`make build-mcp` 结束时会打印其绝对路径。上面示例中的 `/path/to/impersonate-proxy` 即你的克隆目录。
 
 ### 工具
 

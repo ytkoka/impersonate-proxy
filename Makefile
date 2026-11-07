@@ -9,6 +9,7 @@ build:
 # proxy's management API. Not built by `make build`. See README "MCP server".
 build-mcp:
 	cd impersonate-mcp && $(GO) build -o impersonate-mcp .
+	@echo "built: $(CURDIR)/impersonate-mcp/impersonate-mcp  (use this exact path as the MCP server command)"
 
 test-mcp:
 	cd impersonate-mcp && $(GO) test ./...
