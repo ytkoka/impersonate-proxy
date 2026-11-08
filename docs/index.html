@@ -462,6 +462,7 @@ http2:
       <tr><td>set_client_ip</td><td>Set the spoofed client IP</td></tr>
       <tr><td>set_upstream</td><td>Enable/disable the upstream proxy and select one by name</td></tr>
       <tr><td>verify_fingerprint</td><td>Fetch <code>tls.peet.ws</code> through the proxy and summarise <code>ja3_hash</code>, <code>ja4</code>, <code>akamai_fingerprint</code>, <code>user_agent</code> and <code>ip</code></td></tr>
+      <tr><td>fetch_url</td><td>Fetch any <code>http(s)</code> URL through the proxy with the current preset, User-Agent, client IP and upstream, and return status, headers and body. Loopback and private addresses are refused; <code>fetch_allow_hosts</code> can limit it to chosen hosts</td></tr>
     </table>
     <pre class="code" style="margin-top:24px;"><span class="c"># build — prints the binary's absolute path</span>
 make build-mcp
@@ -471,7 +472,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
   --ca-cert /path/to/impersonate-proxy/ca.crt</pre>
     <div class="install-opts">
       <div class="install-opt"><b>Opt-in:</b> <span>a separate Go module — <code>make build</code> and the Docker image don't include it.</span></div>
-      <div class="install-opt"><b>Read-only mode:</b> <span>pass <code>--read-only</code> to expose only <code>get_config</code> and <code>verify_fingerprint</code>. The management API has no authentication, so keep it on loopback.</span> <a href="https://github.com/ytkoka/impersonate-proxy#mcp-server-optional">Full MCP docs →</a></div>
+      <div class="install-opt"><b>Read-only mode:</b> <span>pass <code>--read-only</code> to hide every tool that changes settings; <code>fetch_url</code> is then limited to GET/HEAD/OPTIONS. The management API has no authentication, so keep it on loopback.</span> <a href="https://github.com/ytkoka/impersonate-proxy#mcp-server-optional">Full MCP docs →</a></div>
     </div>
   </section>
 

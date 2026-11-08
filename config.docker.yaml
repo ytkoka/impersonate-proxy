@@ -117,6 +117,12 @@ http2:
     - scheme
     - path
 
+# Hosts the MCP server's fetch_url tool may reach (each entry allows that host
+# and its subdomains; empty = any public host). Loopback / private / link-local
+# destinations are always refused. Not changeable through the management API or
+# MCP — edit here or pass -fetch-allow-hosts a.com,b.com at startup.
+fetch_allow_hosts: []
+
 # Route target connections through an upstream SOCKS5 / HTTP CONNECT proxy
 # instead of dialing direct — see the "Upstream proxy" section of README.md.
 #

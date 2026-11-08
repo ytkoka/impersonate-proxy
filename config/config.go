@@ -16,6 +16,14 @@ type Config struct {
 	HTTP2      HTTP2Config    `yaml:"http2"`
 	Upstream   UpstreamConfig `yaml:"upstream"`
 	Filter     FilterConfig   `yaml:"filter"`
+
+	// FetchAllowHosts restricts which hosts the MCP server's fetch_url tool may
+	// reach: each entry allows that host and its subdomains; empty allows all
+	// (private/loopback destinations are always refused by the MCP server).
+	// It is read-only at runtime — shown by the management API but deliberately
+	// absent from ConfigPatch, so it can only be changed in config.yaml or with
+	// the -fetch-allow-hosts startup flag.
+	FetchAllowHosts []string `yaml:"fetch_allow_hosts"`
 }
 
 // FilterConfig limits impersonation to some target hosts. Hosts that are not
@@ -41,6 +49,9 @@ type ActiveConfig struct {
 
 	FilterMode  string   `json:"filter_mode"`
 	FilterHosts []string `json:"filter_hosts"`
+
+	// FetchAllowHosts is informational: it is not part of ConfigPatch.
+	FetchAllowHosts []string `json:"fetch_allow_hosts"`
 }
 
 // ConfigPatch is a partial update to the runtime-mutable settings, as decoded

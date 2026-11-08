@@ -17,8 +17,9 @@ Intended for **authorized security testing** of WAF and bot-detection systems yo
 | `set_client_ip` | Set the spoofed client IP (`X-Forwarded-For` / `True-Client-IP`) |
 | `set_upstream` | Enable/disable the upstream proxy and select one by name |
 | `verify_fingerprint` | Fetch `tls.peet.ws` through the proxy and summarise `ja3_hash`, `ja4`, `akamai_fingerprint`, `user_agent` and `ip` |
+| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body`, `body_truncated` and `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects`, `max_body_bytes`. Failures come back in an `error` field |
 
-Pass `--read-only` to expose only `get_config` and `verify_fingerprint`.
+Pass `--read-only` to hide every tool that changes settings (`set_*`). `fetch_url` stays, but only for `GET` / `HEAD` / `OPTIONS` without a body.
 
 ## Install
 
@@ -61,13 +62,15 @@ If the file already has other keys or servers, add `"impersonate"` inside the ex
 
 | Flag / env | Description |
 | --- | --- |
-| `--ca-cert` | Path to the proxy's `ca.crt`, used by `verify_fingerprint` to trust the MITM certificate |
-| `--read-only` | Expose only `get_config` and `verify_fingerprint` |
+| `--ca-cert` | Path to the proxy's `ca.crt`, used by `verify_fingerprint` and `fetch_url` to trust the MITM certificate |
+| `--read-only` | Hide the `set_*` tools; limit `fetch_url` to `GET` / `HEAD` / `OPTIONS` |
 | `IMPERSONATE_MGMT_URL` | Management API URL (default `http://127.0.0.1:8081`) |
 
 ## Security
 
 The proxy's management API has **no authentication**. Keep `mgmt_listen` on loopback, and run this server locally over stdio only.
+
+`fetch_url` always goes through the proxy and refuses loopback, private and link-local destinations (checking the host, every resolved address and each redirect hop). To limit it further, set `fetch_allow_hosts` in the proxy's `config.yaml` (or start the proxy with `-fetch-allow-hosts a.com,b.com`): only those hosts and their subdomains are reachable. `get_config` shows the list; no tool can change it. If the proxy's configuration can't be read, `fetch_url` refuses rather than fetching unrestricted. DNS rebinding between this server's lookup and the proxy's own lookup is not prevented.
 
 ## License
 

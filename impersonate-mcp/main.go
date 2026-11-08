@@ -10,10 +10,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -31,7 +33,11 @@ type options struct {
 	ProxyURL  string // proxy URL used by verify_fingerprint; derived from the active config when empty
 	CACert    string // PEM file with the proxy's MITM CA; system roots are used when empty
 	VerifyURL string // fingerprint echo endpoint
-	ReadOnly  bool   // expose only the read-only tools
+	ReadOnly  bool   // expose only the tools that cannot change settings
+
+	// Test hooks.
+	lookup       func(ctx context.Context, host string) ([]netip.Addr, error)
+	fetchTimeout time.Duration
 }
 
 func main() {
@@ -44,13 +50,13 @@ func main() {
 	flag.StringVar(&o.MgmtURL, "mgmt-url", envOr("IMPERSONATE_MGMT_URL", defaultMgmtURL),
 		"management API base URL (env IMPERSONATE_MGMT_URL)")
 	flag.StringVar(&o.ProxyURL, "proxy-url", os.Getenv("IMPERSONATE_PROXY_URL"),
-		"proxy URL for verify_fingerprint; default: derived from the proxy's `listen` (env IMPERSONATE_PROXY_URL)")
+		"proxy URL for verify_fingerprint and fetch_url; default: derived from the proxy's `listen` (env IMPERSONATE_PROXY_URL)")
 	flag.StringVar(&o.CACert, "ca-cert", os.Getenv("IMPERSONATE_CA_CERT"),
-		"path to the proxy's ca.crt for verify_fingerprint; default: system trust store (env IMPERSONATE_CA_CERT)")
+		"path to the proxy's ca.crt for verify_fingerprint and fetch_url; default: system trust store (env IMPERSONATE_CA_CERT)")
 	flag.StringVar(&o.VerifyURL, "verify-url", envOr("IMPERSONATE_VERIFY_URL", defaultVerifyURL),
 		"fingerprint echo endpoint (env IMPERSONATE_VERIFY_URL)")
 	flag.BoolVar(&o.ReadOnly, "read-only", readOnlyDefault,
-		"expose only get_config and verify_fingerprint (env IMPERSONATE_READ_ONLY)")
+		"hide every tool that changes proxy settings; fetch_url is limited to GET/HEAD/OPTIONS (env IMPERSONATE_READ_ONLY)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -99,7 +105,8 @@ func newServer(o options) (*mcp.Server, error) {
 		&mcp.Implementation{Name: "impersonate-mcp", Version: version},
 		&mcp.ServerOptions{Instructions: instructions(o.ReadOnly)},
 	)
-	registerTools(srv, mgmt, &verifier{mgmt: mgmt, proxyURL: o.ProxyURL, caCert: o.CACert, verifyURL: o.VerifyURL}, o.ReadOnly)
+	v := &verifier{mgmt: mgmt, proxyURL: o.ProxyURL, caCert: o.CACert, verifyURL: o.VerifyURL}
+	registerTools(srv, mgmt, v, &fetcher{v: v, guard: targetGuard{lookup: o.lookup}, readOnly: o.ReadOnly, timeout: o.fetchTimeout}, o.ReadOnly)
 	return srv, nil
 }
 

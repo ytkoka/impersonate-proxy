@@ -28,9 +28,10 @@ type setUpstreamArgs struct {
 	Select  *string `json:"select,omitempty" jsonschema:"Upstream proxy name from config.yaml, or \"rotate\" / \"random\". Empty string selects the first proxy. Proxies cannot be added at runtime."`
 }
 
-// registerTools adds the tools to srv. In read-only mode only the tools that
-// cannot change the proxy's configuration are registered.
-func registerTools(srv *mcp.Server, mgmt *mgmtClient, v *verifier, readOnly bool) {
+// registerTools adds the tools to srv. In read-only mode the tools that change
+// the proxy's configuration are not registered, and fetch_url refuses anything
+// but GET/HEAD/OPTIONS.
+func registerTools(srv *mcp.Server, mgmt *mgmtClient, v *verifier, f *fetcher, readOnly bool) {
 	patchTool := func(name, desc string) *mcp.Tool {
 		return &mcp.Tool{
 			Name:        name,
@@ -56,6 +57,16 @@ func registerTools(srv *mcp.Server, mgmt *mgmtClient, v *verifier, readOnly bool
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, FingerprintSummary, error) {
 		s, err := v.run(ctx)
 		return nil, s, err
+	})
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "fetch_url",
+		Description: "Fetch a URL through the proxy using the current TLS preset, User-Agent, client IP and upstream settings, " +
+			"and return the status, headers and body.",
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: ptr(true)},
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, a fetchArgs) (*mcp.CallToolResult, FetchResult, error) {
+		// Failures are reported in the result's error field, not as a tool error.
+		return nil, f.run(ctx, a), nil
 	})
 
 	if readOnly {

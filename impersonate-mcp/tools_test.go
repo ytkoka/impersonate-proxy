@@ -163,13 +163,13 @@ func toolNames(t *testing.T, cs *mcp.ClientSession) []string {
 
 func TestToolListFullAndReadOnly(t *testing.T) {
 	cs, _ := connect(t, nil)
-	want := []string{"get_config", "set_client_ip", "set_custom_hello", "set_tls_preset", "set_upstream", "set_user_agent", "verify_fingerprint"}
+	want := []string{"fetch_url", "get_config", "set_client_ip", "set_custom_hello", "set_tls_preset", "set_upstream", "set_user_agent", "verify_fingerprint"}
 	if got := toolNames(t, cs); !slices.Equal(got, want) {
 		t.Errorf("tools = %v, want %v", got, want)
 	}
 
 	ro, _ := connect(t, func(o *options, _ *fakeMgmt) { o.ReadOnly = true })
-	want = []string{"get_config", "verify_fingerprint"}
+	want = []string{"fetch_url", "get_config", "verify_fingerprint"}
 	if got := toolNames(t, ro); !slices.Equal(got, want) {
 		t.Errorf("read-only tools = %v, want %v", got, want)
 	}

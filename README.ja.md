@@ -269,6 +269,12 @@ http2:
 filter:
   mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
   hosts: []
+
+# MCPサーバーの fetch_url ツールが接続してよいホスト(「MCPサーバー」参照)。各エントリは
+# そのホストとサブドメインを許可します。空なら公開ホストすべてを許可。実行時は読み取り専用で、
+# 管理APIやMCPからは変更できません。ここを編集するか、プロキシ起動時に
+# `-fetch-allow-hosts a.com,b.com` を渡してください。
+fetch_allow_hosts: []
 ```
 
 ### 管理API
@@ -648,16 +654,17 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 | `set_client_ip` | 偽装するクライアントIPを設定する(`""` = 無効) |
 | `set_upstream` | アップストリームプロキシの有効/無効、および名前(または `rotate` / `random`)での選択 |
 | `verify_fingerprint` | プロキシ経由で `tls.peet.ws/api/all` を取得し、`ja3_hash`・`ja4`・`akamai_fingerprint`・`user_agent`・`ip` を要約する |
+| `fetch_url` | 任意の `http(s)` URL をプロキシ経由(現在のTLSプリセット・User-Agent・クライアントIP・アップストリーム・ホストフィルタを反映)で取得し、`status`・`http_version`・`final_url`・`redirects`・`headers`・`body`(テキストのみ。`Set-Cookie` の値は省略)・`body_truncated`・`elapsed_ms` を返す。オプション: `method`・`headers`・`body`・`follow_redirects`(最大10回)・`max_body_bytes`(既定 51200、上限 1048576)。失敗は `error` フィールドで返る |
 
 ### オプション
 
 | フラグ | 環境変数 | デフォルト | 説明 |
 |---|---|---|---|
 | `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | 管理APIのベースURL |
-| `--proxy-url` | `IMPERSONATE_PROXY_URL` | プロキシの `listen` から自動決定 | `verify_fingerprint` が使うプロキシ |
-| `--ca-cert` | `IMPERSONATE_CA_CERT` | システムの信頼ストア | プロキシの `ca.crt` のパス。`verify_fingerprint` がMITM証明書を信頼するために使う |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | プロキシの `listen` から自動決定 | `verify_fingerprint` と `fetch_url` が使うプロキシ |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | システムの信頼ストア | プロキシの `ca.crt` のパス。`verify_fingerprint` と `fetch_url` がMITM証明書を信頼するために使う |
 | `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | フィンガープリントを返すエンドポイント |
-| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | `get_config` と `verify_fingerprint` のみを公開し、設定を変更するツールをすべて隠す |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | 設定を変更するツール(`set_*`)をすべて隠す。`fetch_url` は残るが、ボディなしの `GET` / `HEAD` / `OPTIONS` に限定される |
 
 ### 注意点
 
@@ -665,6 +672,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 - `verify_fingerprint` は外部サービス(デフォルトは `tls.peet.ws`)へ1回リクエストします。[ホストフィルタ](#ホストフィルタ)でそのホストが対象外だと偽装されない結果になり、ツールが `warnings` で知らせます。
 - `set_upstream` で操作できるのは `config.yaml` に定義済みのプロキシの切り替えと選択のみです。実行時にプロキシを追加することは管理APIがサポートしていません。
 - HTTP/2フィンガープリント(`akamai_fingerprint`)は TLS プリセットではなく `config.yaml` の `http2` で決まるため、プリセットを切り替えても変わりません。
+- `fetch_url` は必ずプロキシ経由で、現在の設定がすべて反映されます。ターゲットへ直接接続することはありません。ループバック・プライベート・リンクローカル宛て(`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`、加えて `fc00::/7`、`fe80::/10`、`100.64/10`、`0.0.0.0/8`)は拒否します。ホスト名と、名前解決後のすべてのIPの両方を判定し、リダイレクトの各ホップでも再判定します。`fetch_allow_hosts`(プロキシの `config.yaml` または `-fetch-allow-hosts`)で、記載ホストとそのサブドメインにさらに限定できます。`get_config` で内容を確認できますが、ツールからは変更できません。プロキシの設定を読み取れない場合、`fetch_url` は無制限に取得せず拒否します。制限: 名前解決はMCPサーバーとプロキシで別々に行われるため、2回目の解決で異なる答えを返すDNSリバインディングは、この判定だけでは防げません。
 - ログは stderr に出力されます。stdout は MCP プロトコル専用です。
 
 ## プロジェクト構成

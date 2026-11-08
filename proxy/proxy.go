@@ -80,6 +80,7 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 	http := s.cfg.HTTP
 	listen := s.cfg.Listen
 	flt := s.cfg.Filter
+	fetchAllow := s.cfg.FetchAllowHosts
 	s.mu.RUnlock()
 
 	return config.ActiveConfig{
@@ -96,6 +97,8 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 
 		FilterMode:  flt.Mode,
 		FilterHosts: slices.Clone(flt.Hosts),
+
+		FetchAllowHosts: slices.Clone(fetchAllow),
 	}
 }
 

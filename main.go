@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"strings"
 
 	"impersonate-proxy/config"
 	"impersonate-proxy/fp"
@@ -14,11 +15,16 @@ import (
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "config file path")
+	fetchAllow := flag.String("fetch-allow-hosts", "",
+		"comma-separated hosts (and their subdomains) the MCP fetch_url tool may reach; overrides fetch_allow_hosts in the config file")
 	flag.Parse()
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		log.Fatalf("load config: %v", err)
+	}
+	if *fetchAllow != "" {
+		cfg.FetchAllowHosts = splitHosts(*fetchAllow)
 	}
 
 	ca, err := mitm.LoadOrCreateCA(cfg.CACert, cfg.CAKey)
@@ -48,4 +54,15 @@ func main() {
 		}()
 	}
 	log.Fatal(srv.ListenAndServe())
+}
+
+// splitHosts parses a comma-separated host list, dropping blanks.
+func splitHosts(s string) []string {
+	var out []string
+	for _, h := range strings.Split(s, ",") {
+		if h = strings.TrimSpace(h); h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
 }

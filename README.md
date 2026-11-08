@@ -269,6 +269,12 @@ http2:
 filter:
   mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
   hosts: []
+
+# Hosts the MCP server's fetch_url tool may reach (see "MCP server"). Each entry
+# allows that host and its subdomains; empty allows any public host. Read-only
+# at runtime: it cannot be changed through the management API or MCP — edit it
+# here, or pass `-fetch-allow-hosts a.com,b.com` when starting the proxy.
+fetch_allow_hosts: []
 ```
 
 ### Management API
@@ -650,16 +656,17 @@ Or in any client's JSON config:
 | `set_client_ip` | Set the spoofed client IP (`""` = off) |
 | `set_upstream` | Enable/disable the upstream proxy and/or select one by name (or `rotate` / `random`) |
 | `verify_fingerprint` | Fetch `tls.peet.ws/api/all` through the proxy and summarise `ja3_hash`, `ja4`, `akamai_fingerprint`, `user_agent` and `ip` |
+| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body` (text only; `Set-Cookie` values are omitted), `body_truncated`, `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects` (max 10), `max_body_bytes` (default 51200, max 1048576). Failures are reported in the `error` field |
 
 ### Options
 
 | Flag | Environment variable | Default | Description |
 |---|---|---|---|
 | `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | Management API base URL |
-| `--proxy-url` | `IMPERSONATE_PROXY_URL` | derived from the proxy's `listen` | Proxy used by `verify_fingerprint` |
-| `--ca-cert` | `IMPERSONATE_CA_CERT` | system trust store | Path to the proxy's `ca.crt`, so `verify_fingerprint` trusts the MITM certificate |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | derived from the proxy's `listen` | Proxy used by `verify_fingerprint` and `fetch_url` |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | system trust store | Path to the proxy's `ca.crt`, so `verify_fingerprint` and `fetch_url` trust the MITM certificate |
 | `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | Fingerprint echo endpoint |
-| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | Register only `get_config` and `verify_fingerprint`; every tool that changes settings is hidden |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | Hide every tool that changes settings (`set_*`); `fetch_url` stays but is limited to `GET` / `HEAD` / `OPTIONS` without a body |
 
 ### Notes
 
@@ -667,6 +674,7 @@ Or in any client's JSON config:
 - `verify_fingerprint` sends one request to an external service (`tls.peet.ws` by default). If the [host filter](#host-filter) excludes that host the result is not impersonated, and the tool says so in `warnings`.
 - `set_upstream` can only toggle and select proxies that are already in `config.yaml`; adding proxies at runtime is not supported by the management API.
 - The HTTP/2 fingerprint (`akamai_fingerprint`) is set by `http2` in `config.yaml`, not by the TLS preset, so switching the preset does not change it.
+- `fetch_url` always goes through the proxy, so every current setting applies; it never connects to targets directly. It refuses loopback, private and link-local destinations (`127.0.0.0/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `::1`, plus `fc00::/7`, `fe80::/10`, `100.64/10` and `0.0.0.0/8`), checking both the host and every address it resolves to, and re-checks each redirect hop. `fetch_allow_hosts` (proxy `config.yaml` or `-fetch-allow-hosts`) can further limit it to listed hosts and their subdomains; `get_config` shows the list, and no tool can change it. If the proxy's configuration cannot be read, `fetch_url` refuses rather than fetching unrestricted. Limit: the name is resolved once by the MCP server and again by the proxy, so a DNS-rebinding server that answers differently the second time is not stopped by this check alone.
 - Logs go to stderr; stdout is reserved for the MCP protocol.
 
 ## Project structure

@@ -269,6 +269,11 @@ http2:
 filter:
   mode: "off"      # off | include (only the listed hosts) | exclude (all but the listed hosts)
   hosts: []
+
+# MCP 服务器的 fetch_url 工具可以访问的主机(参见"MCP 服务器")。每个条目允许该主机及其子域名;
+# 留空表示允许任何公网主机。运行时只读:无法通过管理 API 或 MCP 修改,请在此处编辑,
+# 或在启动代理时传入 `-fetch-allow-hosts a.com,b.com`。
+fetch_allow_hosts: []
 ```
 
 ### 管理 API
@@ -647,16 +652,17 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 | `set_client_ip` | 设置伪造的客户端 IP(`""` = 关闭) |
 | `set_upstream` | 启用/禁用上游代理,和/或按名称(或 `rotate` / `random`)选择 |
 | `verify_fingerprint` | 通过代理获取 `tls.peet.ws/api/all`,并汇总 `ja3_hash`、`ja4`、`akamai_fingerprint`、`user_agent` 和 `ip` |
+| `fetch_url` | 通过代理获取任意 `http(s)` URL(应用当前的 TLS 预设、User-Agent、客户端 IP、上游和主机过滤),返回 `status`、`http_version`、`final_url`、`redirects`、`headers`、`body`(仅文本;省略 `Set-Cookie` 的值)、`body_truncated`、`elapsed_ms`。选项:`method`、`headers`、`body`、`follow_redirects`(最多 10 次)、`max_body_bytes`(默认 51200,上限 1048576)。失败信息通过 `error` 字段返回 |
 
 ### 选项
 
 | 参数 | 环境变量 | 默认值 | 说明 |
 |---|---|---|---|
 | `--mgmt-url` | `IMPERSONATE_MGMT_URL` | `http://127.0.0.1:8081` | 管理 API 的基础 URL |
-| `--proxy-url` | `IMPERSONATE_PROXY_URL` | 根据代理的 `listen` 自动推导 | `verify_fingerprint` 使用的代理 |
-| `--ca-cert` | `IMPERSONATE_CA_CERT` | 系统信任库 | 代理 `ca.crt` 的路径,使 `verify_fingerprint` 信任 MITM 证书 |
+| `--proxy-url` | `IMPERSONATE_PROXY_URL` | 根据代理的 `listen` 自动推导 | `verify_fingerprint` 和 `fetch_url` 使用的代理 |
+| `--ca-cert` | `IMPERSONATE_CA_CERT` | 系统信任库 | 代理 `ca.crt` 的路径,使 `verify_fingerprint` 和 `fetch_url` 信任 MITM 证书 |
 | `--verify-url` | `IMPERSONATE_VERIFY_URL` | `https://tls.peet.ws/api/all` | 返回指纹的回显端点 |
-| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | 只注册 `get_config` 和 `verify_fingerprint`,隐藏所有会修改设置的工具 |
+| `--read-only` | `IMPERSONATE_READ_ONLY` | `false` | 隐藏所有会修改设置的工具(`set_*`);`fetch_url` 仍保留,但仅限不带请求体的 `GET` / `HEAD` / `OPTIONS` |
 
 ### 注意事项
 
@@ -664,6 +670,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 - `verify_fingerprint` 会向外部服务(默认 `tls.peet.ws`)发送一次请求。如果[主机过滤](#主机过滤)排除了该主机,结果将不是伪装后的指纹,工具会在 `warnings` 中提示。
 - `set_upstream` 只能切换和选择 `config.yaml` 中已定义的代理;管理 API 不支持在运行时添加代理。
 - HTTP/2 指纹(`akamai_fingerprint`)由 `config.yaml` 中的 `http2` 决定,而不是 TLS 预设,因此切换预设不会改变它。
+- `fetch_url` 始终经过代理,因此所有当前设置都会生效;它从不直接连接目标。它会拒绝回环、私有和链路本地地址(`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`,以及 `fc00::/7`、`fe80::/10`、`100.64/10`、`0.0.0.0/8`),同时检查主机名和解析出的每个 IP,并在每次重定向跳转时重新检查。`fetch_allow_hosts`(代理的 `config.yaml` 或 `-fetch-allow-hosts`)可进一步限制为所列主机及其子域名;`get_config` 会显示该列表,但任何工具都无法修改。如果读取不到代理配置,`fetch_url` 会拒绝而不是不受限地获取。局限:域名由 MCP 服务器和代理分别解析,第二次解析返回不同结果的 DNS 重绑定,仅靠此检查无法阻止。
 - 日志输出到 stderr;stdout 专用于 MCP 协议。
 
 ## 项目结构
