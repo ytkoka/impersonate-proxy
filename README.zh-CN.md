@@ -271,6 +271,13 @@ http2:
   # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
   # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
+  # HTTP/2 下常规请求头的顺序(http.header_order 仅用于 HTTP/1.1)。
+  # 默认:预设所对应浏览器发送的顺序。
+  # header_order: [user-agent, accept, accept-language, accept-encoding]
+
+  # 第一个请求流的 ID(奇数)。默认:跟随预设的浏览器(Firefox 为 15,其他为 1)。
+  # first_stream_id: 1
+
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
 # or "*.example.com" (subdomains only, not example.com itself).
@@ -370,6 +377,8 @@ HTTP/2 指纹由 TLS 预设决定。它就是 tls.peet.ws 返回的 `akamai_fing
 | — | `custom`、`random`、`golang` | 与 Chrome 相同 | 没有对应的单一浏览器 |
 
 "实测"指通过 tls.peet.ws 观察真实浏览器得到的值;"公开资料"指取自记录真实浏览器流量的 [tls-client](https://github.com/bogdanfinn/tls-client) 和 [curl-impersonate](https://github.com/lexiforest/curl-impersonate)。各配置的出处见 `h2fp/profiles.go`。Safari/iOS 采用 Safari 17,以与 `user_agent: "auto"` 发送的 User-Agent 保持一致;Safari 18.4 及更新版本发送 `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`。当前生效的指纹可通过 `get_config`(以及 `GET /api/config`)的 `http2_fingerprint` 查看。
+
+**请求头。** 在 HTTP/2 下,请求携带的请求头也会按预设对应浏览器的顺序发送。例如 iOS Safari 依次是 `accept`、`sec-fetch-site`、`accept-encoding`、`sec-fetch-mode`、`user-agent`、`accept-language`、`sec-fetch-dest`;Chrome 以 `sec-ch-ua*` 系列开头;Firefox 以 `user-agent` 开头。代理只重新排序,从不添加请求头,所以不发送 `Accept` 的客户端依然不会发送(MCP 的 `fetch_url` 会发送浏览器页面加载用的请求头)。不在浏览器列表中的请求头按字母顺序排在后面。Firefox 与真实浏览器一样,把第一个请求放在流 15 上。顺序来自真实浏览器的抓包(curl-impersonate 的 `tests/signatures`,出处记录在 `hdrprofile/hdrprofile.go`);Edge 与 Chrome 相同。可用 `http2.header_order` 覆盖;`http.header_order` 仍然只作用于 HTTP/1.1。
 
 `config.yaml` 的 `http2:` 下设置的字段会对所有预设覆盖预设的值。如果你的 `config.yaml` 是从旧版本复制来的,仍然列出了 `settings`、`window_update` 和 `pseudo_header_order`,它们会固定为 Chrome 的值:想让它跟随预设,请删除这些字段。
 
@@ -669,7 +678,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 | `set_client_ip` | 设置伪造的客户端 IP(`""` = 关闭) |
 | `set_upstream` | 启用/禁用上游代理,和/或按名称(或 `rotate` / `random`)选择 |
 | `verify_fingerprint` | 通过代理获取 `tls.peet.ws/api/all`,并汇总 `ja3_hash`、`ja4`、`akamai_fingerprint`、`user_agent` 和 `ip` |
-| `fetch_url` | 通过代理获取任意 `http(s)` URL(应用当前的 TLS 预设、User-Agent、客户端 IP、上游和主机过滤),返回 `status`、`http_version`、`final_url`、`redirects`、`headers`、`body`(仅文本;省略 `Set-Cookie` 的值)、`body_truncated`、`elapsed_ms`。选项:`method`、`headers`、`body`、`follow_redirects`(最多 10 次)、`max_body_bytes`(默认 51200,上限 1048576)。失败信息通过 `error` 字段返回 |
+| `fetch_url` | 通过代理获取任意 `http(s)` URL(应用当前的 TLS 预设、User-Agent、客户端 IP、上游和主机过滤),返回 `status`、`http_version`、`final_url`、`redirects`、`headers`、`body`(仅文本;省略 `Set-Cookie` 的值)、`body_truncated`、`elapsed_ms`。选项:`method`、`headers`、`body`、`follow_redirects`(最多 10 次)、`max_body_bytes`(默认 51200,上限 1048576)。GET 和 HEAD 默认带有预设浏览器的页面加载请求头(`Accept`、`Accept-Encoding`、`Sec-Fetch-*` 等),除非你自己指定;压缩的响应体(gzip、deflate、br、zstd)会被解压。失败信息通过 `error` 字段返回 |
 
 ### 选项
 

@@ -118,6 +118,13 @@ http2:
   # priorities:
   #   - { stream_id: 3, depends_on: 0, weight: 201, exclusive: false }
   # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
+  #
+  # Order of regular request headers over HTTP/2 (http.header_order is HTTP/1.1 only).
+  # Default: the order the preset's browser sends them in (see package hdrprofile).
+  # header_order: [user-agent, accept, accept-language, accept-encoding]
+  #
+  # ID of the first request stream (odd). Default: the preset's browser (Firefox 15, others 1).
+  # first_stream_id: 1
 
 # Hosts the MCP server's fetch_url tool may reach (each entry allows that host
 # and its subdomains; empty = any public host). Loopback / private / link-local

@@ -17,7 +17,7 @@ Intended for **authorized security testing** of WAF and bot-detection systems yo
 | `set_client_ip` | Set the spoofed client IP (`X-Forwarded-For` / `True-Client-IP`) |
 | `set_upstream` | Enable/disable the upstream proxy and select one by name |
 | `verify_fingerprint` | Fetch `tls.peet.ws` through the proxy and summarise `ja3_hash`, `ja4`, `akamai_fingerprint`, `user_agent` and `ip` |
-| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body`, `body_truncated` and `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects`, `max_body_bytes`. Failures come back in an `error` field |
+| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body`, `body_truncated` and `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects`, `max_body_bytes`. GET and HEAD carry the preset browser's page-load headers (`Accept`, `Accept-Encoding`, `Sec-Fetch-*`, …) unless you pass your own, and compressed bodies (gzip, deflate, br, zstd) are decoded. Failures come back in an `error` field |
 
 Pass `--read-only` to hide every tool that changes settings (`set_*`). `fetch_url` stays, but only for `GET` / `HEAD` / `OPTIONS` without a body.
 

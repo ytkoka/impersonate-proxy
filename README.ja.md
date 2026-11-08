@@ -272,6 +272,13 @@ http2:
   # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
   # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
+  # HTTP/2での通常リクエストヘッダーの順序(http.header_order はHTTP/1.1専用)。
+  # 既定: プリセットのブラウザが送る順序。
+  # header_order: [user-agent, accept, accept-language, accept-encoding]
+
+  # 最初のリクエストストリームのID(奇数)。既定: プリセットのブラウザに合わせる(Firefoxは15、他は1)。
+  # first_stream_id: 1
+
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
 # or "*.example.com" (subdomains only, not example.com itself).
@@ -373,6 +380,8 @@ HTTP/2フィンガープリントはTLSプリセットで決まります。tls.p
 | — | `custom`、`random`、`golang` | Chromeと同じ | 対応する単一のブラウザがないため |
 
 「実測」は実ブラウザを tls.peet.ws 経由で観測した値、「公開情報」は実ブラウザの通信を記録している [tls-client](https://github.com/bogdanfinn/tls-client) と [curl-impersonate](https://github.com/lexiforest/curl-impersonate) から採った値です。各プロファイルの出典は `h2fp/profiles.go` にあります。Safari/iOS は、`user_agent: "auto"` で送るUser-Agentに合わせて Safari 17 です。Safari 18.4 以降は `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p` を送ります。有効なフィンガープリントは `get_config`(と `GET /api/config`)の `http2_fingerprint` で確認できます。
+
+**リクエストヘッダー。** HTTP/2では、リクエストが持つヘッダーも、プリセットのブラウザが送る順序で送ります。たとえばiOS Safariは `accept`、`sec-fetch-site`、`accept-encoding`、`sec-fetch-mode`、`user-agent`、`accept-language`、`sec-fetch-dest` の順、Chromeは `sec-ch-ua*` 系から、Firefoxは `user-agent` から始まります。行うのは並べ替えだけで、ヘッダーを追加することはありません。`Accept` を送らないクライアントは、そのままです(MCPの `fetch_url` はブラウザのページ読み込み用ヘッダーを送ります)。ブラウザの一覧にないヘッダーは、その後にアルファベット順で続きます。Firefoxは実物と同じく、最初のリクエストをストリーム15で送ります。順序は実ブラウザのキャプチャ(curl-impersonate の `tests/signatures`。出典は `hdrprofile/hdrprofile.go` に記載)に基づき、EdgeはChromeと同じです。`http2.header_order` で上書きできます。`http.header_order` は引き続きHTTP/1.1専用です。
 
 `config.yaml` の `http2:` に書いた項目は、すべてのプリセットでプリセットの値を上書きします。古いバージョンからコピーした `config.yaml` に `settings`・`window_update`・`pseudo_header_order` が残っている場合、それらがChromeの値を固定してしまうので、プリセットに連動させたいときは削除してください。
 
@@ -672,7 +681,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 | `set_client_ip` | 偽装するクライアントIPを設定する(`""` = 無効) |
 | `set_upstream` | アップストリームプロキシの有効/無効、および名前(または `rotate` / `random`)での選択 |
 | `verify_fingerprint` | プロキシ経由で `tls.peet.ws/api/all` を取得し、`ja3_hash`・`ja4`・`akamai_fingerprint`・`user_agent`・`ip` を要約する |
-| `fetch_url` | 任意の `http(s)` URL をプロキシ経由(現在のTLSプリセット・User-Agent・クライアントIP・アップストリーム・ホストフィルタを反映)で取得し、`status`・`http_version`・`final_url`・`redirects`・`headers`・`body`(テキストのみ。`Set-Cookie` の値は省略)・`body_truncated`・`elapsed_ms` を返す。オプション: `method`・`headers`・`body`・`follow_redirects`(最大10回)・`max_body_bytes`(既定 51200、上限 1048576)。失敗は `error` フィールドで返る |
+| `fetch_url` | 任意の `http(s)` URL をプロキシ経由(現在のTLSプリセット・User-Agent・クライアントIP・アップストリーム・ホストフィルタを反映)で取得し、`status`・`http_version`・`final_url`・`redirects`・`headers`・`body`(テキストのみ。`Set-Cookie` の値は省略)・`body_truncated`・`elapsed_ms` を返す。オプション: `method`・`headers`・`body`・`follow_redirects`(最大10回)・`max_body_bytes`(既定 51200、上限 1048576)。GETとHEADには、指定しない限り、プリセットのブラウザのページ読み込み用ヘッダー(`Accept`、`Accept-Encoding`、`Sec-Fetch-*` など)が付き、圧縮された本文(gzip・deflate・br・zstd)は展開される。失敗は `error` フィールドで返る |
 
 ### オプション
 

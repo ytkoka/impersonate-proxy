@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"impersonate-proxy/hdrprofile"
 )
 
 const (
@@ -30,7 +32,7 @@ var (
 type fetchArgs struct {
 	URL             string            `json:"url" jsonschema:"Absolute http:// or https:// URL to fetch."`
 	Method          string            `json:"method,omitempty" jsonschema:"GET (default), HEAD, POST, PUT, DELETE, PATCH or OPTIONS."`
-	Headers         map[string]string `json:"headers,omitempty" jsonschema:"Extra request headers. The proxy may still override User-Agent and client-IP headers according to its settings."`
+	Headers         map[string]string `json:"headers,omitempty" jsonschema:"Extra request headers; they replace same-named defaults. GET and HEAD requests carry the preset browser's page-load headers (Accept, Accept-Encoding, Sec-Fetch-*, ...) by default. The proxy may still override User-Agent and client-IP headers according to its settings."`
 	Body            string            `json:"body,omitempty" jsonschema:"Request body."`
 	FollowRedirects *bool             `json:"follow_redirects,omitempty" jsonschema:"Follow redirects, up to 10 (default true)."`
 	MaxBodyBytes    int               `json:"max_body_bytes,omitempty" jsonschema:"Largest response body to return, in bytes (default 51200, capped at 1048576). Longer bodies are cut and body_truncated is set."`
@@ -127,7 +129,7 @@ func (f *fetcher) run(ctx context.Context, a fetchArgs) FetchResult {
 	client.Timeout = 0 // bounded by ctx instead
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
-	headers := a.Headers
+	headers := withBrowserDefaults(cfg.TLSPreset, method, a.Headers)
 	body := a.Body
 	cur := u
 	var resp *http.Response
@@ -193,7 +195,17 @@ func (f *fetcher) run(ctx context.Context, a fetchArgs) FetchResult {
 		res.Headers[k] = strings.Join(vs, ", ")
 	}
 
-	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(maxBody)+1))
+	reader, closeBody, decoded, err := decodeBody(resp)
+	defer closeBody()
+	if err != nil {
+		return fail("%v", err)
+	}
+	if decoded {
+		// The body below is plain, so these no longer describe it.
+		delete(res.Headers, "content-encoding")
+		delete(res.Headers, "content-length")
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, int64(maxBody)+1))
 	if err != nil && len(data) == 0 {
 		return fail("reading response body: %v", describeFetchError(ctx, timeout, err, cur, proxyURL))
 	}
@@ -204,6 +216,26 @@ func (f *fetcher) run(ctx context.Context, a fetchArgs) FetchResult {
 	res.Body, res.BodyBytes = renderBody(data, resp.Header.Get("Content-Type"), res.BodyTruncated)
 	res.ElapsedMS = time.Since(start).Milliseconds()
 	return res
+}
+
+// withBrowserDefaults returns the request headers for a fetch: for GET and HEAD
+// (what a browser does when it loads a page) the preset's browser's navigation
+// headers — Accept, Accept-Encoding, Sec-Fetch-* and so on — with any header
+// the caller gave replacing the default of the same name. Other methods get
+// only what the caller gave, since those headers describe page loads.
+func withBrowserDefaults(preset, method string, given map[string]string) map[string]string {
+	out := make(map[string]string, len(given)+8)
+	if method == http.MethodGet || method == http.MethodHead {
+		for _, h := range hdrprofile.Navigation(preset) {
+			if !hdrprofile.Has(given, h.Name) {
+				out[h.Name] = h.Value
+			}
+		}
+	}
+	for k, v := range given {
+		out[k] = v
+	}
+	return out
 }
 
 func isRedirect(code int) bool {

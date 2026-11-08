@@ -45,15 +45,18 @@ type Conn struct {
 //  1. Sends the client connection preface (magic + custom SETTINGS + WINDOW_UPDATE)
 //  2. Reads and acknowledges the server's SETTINGS
 //
-// headerOrder controls the emission order of regular (non-pseudo) headers,
-// matching the HTTP/1.1 header_order setting so both protocols behave identically.
-func Dial(raw net.Conn, cfg config.HTTP2Config, headerOrder []string) (*Conn, error) {
+// cfg.HeaderOrder controls the emission order of regular (non-pseudo) headers;
+// headers it doesn't list follow in alphabetical order.
+func Dial(raw net.Conn, cfg config.HTTP2Config) (*Conn, error) {
 	c := &Conn{
 		raw:         raw,
 		fr:          http2.NewFramer(raw, raw),
 		cfg:         cfg,
-		headerOrder: headerOrder,
+		headerOrder: cfg.HeaderOrder,
 		nextID:      1,
+	}
+	if id := cfg.FirstStreamID; id > 1 && id%2 == 1 {
+		c.nextID = id
 	}
 	c.enc = hpack.NewEncoder(&c.encBuf)
 	c.dec = hpack.NewDecoder(65536, nil)
@@ -196,9 +199,7 @@ func (c *Conn) writeHeaders(req *http.Request, sid uint32) error {
 		if len(vs) == 0 {
 			continue
 		}
-		for _, v := range vs {
-			c.enc.WriteField(hpack.HeaderField{Name: strings.ToLower(canonical), Value: v})
-		}
+		c.writeValues(canonical, vs)
 		written[canonical] = true
 	}
 
@@ -211,9 +212,7 @@ func (c *Conn) writeHeaders(req *http.Request, sid uint32) error {
 	}
 	sort.Strings(rest)
 	for _, k := range rest {
-		for _, v := range req.Header[k] {
-			c.enc.WriteField(hpack.HeaderField{Name: strings.ToLower(k), Value: v})
-		}
+		c.writeValues(k, req.Header[k])
 	}
 
 	param := http2.HeadersFrameParam{
@@ -342,10 +341,22 @@ func (c *Conn) readResponse(req *http.Request, sid uint32) (*http.Response, erro
 	}
 }
 
+// writeValues encodes one header's values. TE is the one connection-specific
+// header HTTP/2 permits, and only with the value "trailers" (RFC 7540 §8.1.2.2);
+// Firefox sends exactly that, so it passes while any other TE value is dropped.
+func (c *Conn) writeValues(canonical string, values []string) {
+	for _, v := range values {
+		if canonical == "Te" && !strings.EqualFold(strings.TrimSpace(v), "trailers") {
+			continue
+		}
+		c.enc.WriteField(hpack.HeaderField{Name: strings.ToLower(canonical), Value: v})
+	}
+}
+
+// isHopByHop reports headers that are never forwarded over HTTP/2.
 func isHopByHop(name string) bool {
 	switch strings.ToLower(name) {
-	case "connection", "keep-alive", "proxy-connection",
-		"te", "transfer-encoding", "upgrade":
+	case "connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade":
 		return true
 	}
 	return false

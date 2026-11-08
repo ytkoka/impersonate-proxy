@@ -67,6 +67,8 @@ func (f *fakeMgmt) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(f.cfg)
 }
 
+const fixtureAkamai = "1:65536;2:0|15663105|0|m,a,s,p"
+
 const peetFixture = `{
   "ip": "203.0.113.7:51234",
   "http_version": "h2",
@@ -79,7 +81,7 @@ const peetFixture = `{
 func connect(t *testing.T, mutate func(*options, *fakeMgmt)) (*mcp.ClientSession, *fakeMgmt) {
 	t.Helper()
 
-	fm := &fakeMgmt{cfg: config.ActiveConfig{TLSPreset: "chrome", Listen: "127.0.0.1:8080", FilterMode: "off"}}
+	fm := &fakeMgmt{cfg: config.ActiveConfig{TLSPreset: "chrome", Listen: "127.0.0.1:8080", FilterMode: "off", HTTP2Fingerprint: fixtureAkamai}}
 	mgmtSrv := httptest.NewServer(fm)
 	t.Cleanup(mgmtSrv.Close)
 
@@ -349,5 +351,21 @@ func TestNewMgmtClientValidation(t *testing.T) {
 		if c.loopback() != want {
 			t.Errorf("loopback(%q) = %v, want %v", url, c.loopback(), want)
 		}
+	}
+}
+
+func TestVerifyWarnsAboutAnOlderProxy(t *testing.T) {
+	cs, _ := connect(t, func(_ *options, fm *fakeMgmt) { fm.cfg.HTTP2Fingerprint = "" })
+	s := decode[FingerprintSummary](t, call(t, cs, "verify_fingerprint", nil))
+	if len(s.Warnings) != 1 || !strings.Contains(s.Warnings[0], "older build") {
+		t.Errorf("warnings = %v", s.Warnings)
+	}
+}
+
+func TestVerifyWarnsWhenTheServerSawAnotherHTTP2Fingerprint(t *testing.T) {
+	cs, _ := connect(t, func(_ *options, fm *fakeMgmt) { fm.cfg.HTTP2Fingerprint = "2:0;4:2097152;3:100|10485760|0|m,s,p,a" })
+	s := decode[FingerprintSummary](t, call(t, cs, "verify_fingerprint", nil))
+	if len(s.Warnings) != 1 || !strings.Contains(s.Warnings[0], "set to send") {
+		t.Errorf("warnings = %v", s.Warnings)
 	}
 }

@@ -11,6 +11,7 @@ COPY config/ ./config/
 COPY filter/ ./filter/
 COPY fp/ ./fp/
 COPY h2fp/ ./h2fp/
+COPY hdrprofile/ ./hdrprofile/
 COPY mgmt/ ./mgmt/
 COPY mitm/ ./mitm/
 COPY proxy/ ./proxy/

@@ -63,6 +63,9 @@ func (v *verifier) run(ctx context.Context) (FingerprintSummary, error) {
 	if cfgErr == nil {
 		out.TLSPreset = cfg.TLSPreset
 		out.FilterMode = cfg.FilterMode
+		if cfg.HTTP2Fingerprint == "" {
+			out.Warnings = append(out.Warnings, "the proxy did not report http2_fingerprint: it is an older build than this MCP server (its HTTP/2 fingerprint does not follow the TLS preset) — rebuild and restart the proxy")
+		}
 		if m, err := filter.New(cfg.FilterMode, cfg.FilterHosts); err == nil && !m.Impersonate(target.Host) {
 			out.Warnings = append(out.Warnings, fmt.Sprintf(
 				"host filter (mode=%s) excludes %s, so the proxy tunnels it untouched: the result is the client's own fingerprint, not the configured preset",
@@ -110,6 +113,9 @@ func (v *verifier) run(ctx context.Context) (FingerprintSummary, error) {
 	out.AkamaiFingerprint = pr.HTTP2.Akamai
 	out.UserAgent = pr.UserAgent
 	out.IP = hostOnly(pr.IP)
+	if cfgErr == nil && cfg.HTTP2Fingerprint != "" && pr.HTTP2.Akamai != "" && pr.HTTP2.Akamai != cfg.HTTP2Fingerprint && len(out.Warnings) == 0 {
+		out.Warnings = append(out.Warnings, fmt.Sprintf("the server saw HTTP/2 fingerprint %s but the proxy is set to send %s", pr.HTTP2.Akamai, cfg.HTTP2Fingerprint))
+	}
 	return out, nil
 }
 

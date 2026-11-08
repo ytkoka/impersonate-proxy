@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"impersonate-proxy/config"
+	"impersonate-proxy/hdrprofile"
 )
 
 // Per-preset HTTP/2 fingerprints.
@@ -33,6 +34,10 @@ import (
 //   - [curl-impersonate] github.com/lexiforest/curl-impersonate, bin/curl_*
 //     wrapper scripts (--http2-settings, --http2-window-update,
 //     --http2-pseudo-headers-order).
+//   - [capture] the same project's tests/signatures/*.yaml: captures of real
+//     browsers (Chrome 131, Firefox 133/135/144, Safari 17.0 macOS, Safari 17.2
+//     iOS). They agree with every SETTINGS / WINDOW_UPDATE / pseudo-header value
+//     below, and are the source for the request-header order (package hdrprofile).
 var profiles = map[string]config.HTTP2Config{
 	// Chrome / Chromium. [measured] Chrome 156: SETTINGS 1:65536;2:0;4:6291456;6:262144,
 	// WINDOW_UPDATE 15663105, pseudo-headers m,a,s,p, and every HEADERS frame
@@ -50,14 +55,18 @@ var profiles = map[string]config.HTTP2Config{
 	// to about 123 also sent PRIORITY frames (streams 3,5,7,9,11); current
 	// versions don't. Not measured here (no Firefox on the build machine), and
 	// the sources disagree about a HEADERS priority, so none is sent.
+	//
+	// The first request goes out on stream 15, not 1: [capture] of Firefox 133,
+	// 135 and 144 (curl-impersonate tests/signatures/firefox_*.yaml).
 	"firefox": {
 		Settings:          []config.H2Setting{{ID: 1, Val: 65536}, {ID: 2, Val: 0}, {ID: 4, Val: 131072}, {ID: 5, Val: 16384}},
 		WindowUpdate:      12517377,
 		PseudoHeaderOrder: []string{"method", "path", "authority", "scheme"},
+		FirstStreamID:     15,
 	},
 
 	// Safari 17 on macOS: 2:0;4:4194304;3:100 | 10485760 | 0 | m,s,p,a.
-	// [curl-impersonate] curl_safari170. Not measured here. Note the order is
+	// [curl-impersonate] curl_safari170; [capture] safari_17.0_macOS.yaml. Note the order is
 	// ENABLE_PUSH, INITIAL_WINDOW_SIZE, MAX_CONCURRENT_STREAMS.
 	//
 	// Newer Safari differs: 18.4 and 26 send 2:0;3:100;4:2097152;9:1 | 10420225 |
@@ -70,10 +79,10 @@ var profiles = map[string]config.HTTP2Config{
 		PseudoHeaderOrder: []string{"method", "scheme", "path", "authority"},
 	},
 
-	// Safari on iOS 17: 2:0;4:2097152;3:100 | 10485760 | 0 | m,s,p,a. Two
-	// independent sources agree: [curl-impersonate] curl_safari172_ios and
-	// [tls-client] Safari_IOS_17_0. Not measured here (no iOS device or Simulator
-	// available). It differs from macOS Safari 17 in INITIAL_WINDOW_SIZE. iOS 18.4+
+	// Safari on iOS 17: 2:0;4:2097152;3:100 | 10485760 | 0 | m,s,p,a. Three
+	// sources agree: [capture] safari_17.2_iOS.yaml, [curl-impersonate]
+	// curl_safari172_ios and [tls-client] Safari_IOS_17_0. Not measured here (no
+	// iOS device or Simulator available). It differs from macOS Safari 17 in INITIAL_WINDOW_SIZE. iOS 18.4+
 	// uses the newer values described under "safari".
 	"ios": {
 		Settings:          []config.H2Setting{{ID: 2, Val: 0}, {ID: 4, Val: 2097152}, {ID: 3, Val: 100}},
@@ -106,6 +115,8 @@ func Resolve(preset string, user config.HTTP2Config) config.HTTP2Config {
 		WindowUpdate:      base.WindowUpdate,
 		PseudoHeaderOrder: slices.Clone(base.PseudoHeaderOrder),
 		Priorities:        slices.Clone(base.Priorities),
+		FirstStreamID:     base.FirstStreamID,
+		HeaderOrder:       hdrprofile.Order(preset),
 	}
 	if base.HeadersPriority != nil {
 		hp := *base.HeadersPriority
@@ -125,6 +136,12 @@ func Resolve(preset string, user config.HTTP2Config) config.HTTP2Config {
 	}
 	if user.HeadersPriority != nil {
 		out.HeadersPriority = user.HeadersPriority
+	}
+	if user.FirstStreamID > 0 {
+		out.FirstStreamID = user.FirstStreamID
+	}
+	if len(user.HeaderOrder) > 0 {
+		out.HeaderOrder = user.HeaderOrder
 	}
 	return out
 }

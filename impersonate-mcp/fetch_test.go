@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"impersonate-proxy/config"
@@ -100,6 +107,15 @@ func (p *forwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 		case <-time.After(5 * time.Second):
 		}
+	case "pub.example/headers":
+		w.Header().Set("Content-Type", "application/json")
+		h := map[string]string{}
+		for k := range r.Header {
+			h[strings.ToLower(k)] = r.Header.Get(k)
+		}
+		json.NewEncoder(w).Encode(h)
+	case "pub.example/gz", "pub.example/br", "pub.example/zstd", "pub.example/deflate", "pub.example/deflate-raw", "pub.example/bomb", "pub.example/stacked":
+		serveEncoded(w, r.URL.Path)
 	case "pub.example/five":
 		w.WriteHeader(http.StatusBadGateway)
 	default:
@@ -487,5 +503,161 @@ func TestRenderBody(t *testing.T) {
 	// No Content-Type: sniff.
 	if s, _ := renderBody([]byte("<html><body>hi</body></html>"), "", false); !strings.HasPrefix(s, "<html>") {
 		t.Errorf("sniffed html: %q", s)
+	}
+}
+
+const encodedPlain = "decoded body ✓"
+
+func serveEncoded(w http.ResponseWriter, path string) {
+	var buf bytes.Buffer
+	enc := strings.TrimPrefix(path, "/")
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	switch enc {
+	case "gz":
+		zw := gzip.NewWriter(&buf)
+		zw.Write([]byte(encodedPlain))
+		zw.Close()
+		enc = "gzip"
+	case "br":
+		bw := brotli.NewWriter(&buf)
+		bw.Write([]byte(encodedPlain))
+		bw.Close()
+	case "zstd":
+		zw, _ := zstd.NewWriter(&buf)
+		zw.Write([]byte(encodedPlain))
+		zw.Close()
+	case "deflate":
+		zw := zlib.NewWriter(&buf)
+		zw.Write([]byte(encodedPlain))
+		zw.Close()
+	case "deflate-raw":
+		fw, _ := flate.NewWriter(&buf, flate.DefaultCompression)
+		fw.Write([]byte(encodedPlain))
+		fw.Close()
+		enc = "deflate"
+	case "bomb":
+		zw := gzip.NewWriter(&buf)
+		zw.Write(bytes.Repeat([]byte("a"), 50<<20)) // 50 MB of text in a few KB
+		zw.Close()
+		enc = "gzip"
+	case "stacked": // gzip applied after br: "br, gzip"
+		var inner bytes.Buffer
+		bw := brotli.NewWriter(&inner)
+		bw.Write([]byte(encodedPlain))
+		bw.Close()
+		zw := gzip.NewWriter(&buf)
+		zw.Write(inner.Bytes())
+		zw.Close()
+		enc = "br, gzip"
+	}
+	w.Header().Set("Content-Encoding", enc)
+	w.Write(buf.Bytes())
+}
+
+func TestFetchDecodesEveryEncodingBrowsersAccept(t *testing.T) {
+	e := newFetchEnv(t, nil)
+	for _, path := range []string{"gz", "br", "zstd", "deflate", "deflate-raw", "stacked"} {
+		r := e.fetch(t, map[string]any{"url": "http://pub.example/" + path})
+		if r.Error != "" || r.Body != encodedPlain {
+			t.Errorf("%s: body=%q error=%q", path, r.Body, r.Error)
+		}
+		if _, ok := r.Headers["content-encoding"]; ok {
+			t.Errorf("%s: content-encoding should be dropped once decoded", path)
+		}
+		if r.BodyBytes != len(encodedPlain) {
+			t.Errorf("%s: body_bytes = %d, want %d (decoded size)", path, r.BodyBytes, len(encodedPlain))
+		}
+	}
+}
+
+func TestFetchDecompressionIsBounded(t *testing.T) {
+	e := newFetchEnv(t, nil)
+	r := e.fetch(t, map[string]any{"url": "http://pub.example/bomb", "max_body_bytes": 1000})
+	if r.Error != "" || !r.BodyTruncated || r.BodyBytes != 1000 {
+		t.Errorf("a 50 MB decompressed body must be cut at max_body_bytes: %+v", r.BodyBytes)
+	}
+}
+
+func TestFetchUnsupportedEncodingIsReported(t *testing.T) {
+	d := &http.Response{Header: http.Header{"Content-Encoding": {"compress"}}, Body: http.NoBody}
+	if _, _, _, err := decodeBody(d); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Errorf("err = %v", err)
+	}
+	// identity and a missing header mean the body is already plain.
+	p := &http.Response{Header: http.Header{"Content-Encoding": {"identity"}}, Body: http.NoBody}
+	if _, _, decoded, err := decodeBody(p); err != nil || decoded {
+		t.Errorf("identity: decoded=%v err=%v", decoded, err)
+	}
+}
+
+// echoedHeaders fetches the proxy's /headers route, which reports what arrived.
+func (e *fetchEnv) echoedHeaders(t *testing.T, args map[string]any) map[string]string {
+	t.Helper()
+	args["url"] = "http://pub.example/headers"
+	r := e.fetch(t, args)
+	if r.Error != "" {
+		t.Fatalf("fetch: %s", r.Error)
+	}
+	var h map[string]string
+	if err := json.Unmarshal([]byte(r.Body), &h); err != nil {
+		t.Fatalf("decoding %q: %v", r.Body, err)
+	}
+	return h
+}
+
+func TestFetchSendsTheBrowsersPageLoadHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		preset string
+		want   map[string]string
+		absent []string
+	}{
+		{"ios", map[string]string{
+			"accept":          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"accept-encoding": "gzip, deflate, br",
+			"sec-fetch-site":  "none", "sec-fetch-mode": "navigate", "sec-fetch-dest": "document",
+		}, []string{"sec-ch-ua", "te", "priority"}},
+		{"chrome", map[string]string{
+			"accept-encoding":  "gzip, deflate, br, zstd",
+			"sec-ch-ua-mobile": "?0", "upgrade-insecure-requests": "1", "priority": "u=0, i",
+		}, nil},
+		{"firefox", map[string]string{"te": "trailers", "accept-language": "en-US,en;q=0.5"}, []string{"sec-ch-ua"}},
+	} {
+		t.Run(tc.preset, func(t *testing.T) {
+			e := newFetchEnv(t, func(_ *options, fm *fakeMgmt) { fm.cfg.TLSPreset = tc.preset })
+			got := e.echoedHeaders(t, map[string]any{})
+			for k, v := range tc.want {
+				if got[k] != v {
+					t.Errorf("%s = %q, want %q", k, got[k], v)
+				}
+			}
+			for _, k := range tc.absent {
+				if _, ok := got[k]; ok {
+					t.Errorf("%s should not be sent for %s", k, tc.preset)
+				}
+			}
+		})
+	}
+}
+
+func TestFetchCallerHeadersReplaceDefaults(t *testing.T) {
+	e := newFetchEnv(t, func(_ *options, fm *fakeMgmt) { fm.cfg.TLSPreset = "ios" })
+	got := e.echoedHeaders(t, map[string]any{"headers": map[string]any{"accept": "application/json", "X-Extra": "1"}})
+	if got["accept"] != "application/json" || got["x-extra"] != "1" || got["sec-fetch-mode"] != "navigate" {
+		t.Errorf("headers = %v", got)
+	}
+}
+
+func TestFetchNonNavigationMethodsGetNoPageLoadHeaders(t *testing.T) {
+	e := newFetchEnv(t, func(_ *options, fm *fakeMgmt) { fm.cfg.TLSPreset = "ios" })
+	for _, method := range []string{"POST", "PUT", "DELETE", "PATCH", "OPTIONS"} {
+		got := e.echoedHeaders(t, map[string]any{"method": method, "headers": map[string]any{"X-Extra": "1"}})
+		if got["x-extra"] != "1" {
+			t.Errorf("%s: caller header lost: %v", method, got)
+		}
+		for _, k := range []string{"sec-fetch-mode", "sec-fetch-site", "accept-language"} {
+			if _, ok := got[k]; ok {
+				t.Errorf("%s must not carry the page-load header %s", method, k)
+			}
+		}
 	}
 }

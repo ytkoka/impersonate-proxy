@@ -272,6 +272,13 @@ http2:
   # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
   # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
+  # Order of regular request headers over HTTP/2 (http.header_order is HTTP/1.1 only).
+  # Default: the order the preset's browser sends them in.
+  # header_order: [user-agent, accept, accept-language, accept-encoding]
+
+  # ID of the first request stream (odd). Default: the preset's browser (Firefox 15, others 1).
+  # first_stream_id: 1
+
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
 # or "*.example.com" (subdomains only, not example.com itself).
@@ -373,6 +380,8 @@ The HTTP/2 fingerprint is chosen by the TLS preset. It is the `akamai_fingerprin
 | — | `custom`, `random`, `golang` | Chrome's | no single browser behind them |
 
 "Measured" means observed from the real browser through tls.peet.ws; "published" means taken from [tls-client](https://github.com/bogdanfinn/tls-client) and [curl-impersonate](https://github.com/lexiforest/curl-impersonate), which record real browser traffic. The per-profile sources are in `h2fp/profiles.go`. The Safari/iOS profiles are Safari 17 to match the User-Agents the proxy sends for `user_agent: "auto"`; Safari 18.4 and later send `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`. `get_config` (and `GET /api/config`) reports the fingerprint in effect as `http2_fingerprint`.
+
+**Request headers.** Over HTTP/2 the proxy also sends the headers a request carries in the order the preset's browser does — for example iOS Safari: `accept`, `sec-fetch-site`, `accept-encoding`, `sec-fetch-mode`, `user-agent`, `accept-language`, `sec-fetch-dest`; Chrome starts with the `sec-ch-ua*` headers; Firefox starts with `user-agent`. It only reorders: it never adds headers, so a client that doesn't send `Accept` still won't (the MCP `fetch_url` tool does send the browser's page-load headers). Headers that aren't in the browser's list follow, alphabetically. Firefox's first request goes out on stream 15, as the real browser does. The orders come from captures of the real browsers (curl-impersonate `tests/signatures`, listed in `hdrprofile/hdrprofile.go`); Edge's is Chrome's. Override with `http2.header_order`; `http.header_order` still sets the order for HTTP/1.1 only.
 
 Fields set under `http2:` in `config.yaml` override the preset's value for every preset. If your `config.yaml` was copied from an older version and still lists `settings`, `window_update` and `pseudo_header_order`, those pin Chrome's values: delete them to follow the preset.
 
@@ -674,7 +683,7 @@ Or in any client's JSON config:
 | `set_client_ip` | Set the spoofed client IP (`""` = off) |
 | `set_upstream` | Enable/disable the upstream proxy and/or select one by name (or `rotate` / `random`) |
 | `verify_fingerprint` | Fetch `tls.peet.ws/api/all` through the proxy and summarise `ja3_hash`, `ja4`, `akamai_fingerprint`, `user_agent` and `ip` |
-| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body` (text only; `Set-Cookie` values are omitted), `body_truncated`, `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects` (max 10), `max_body_bytes` (default 51200, max 1048576). Failures are reported in the `error` field |
+| `fetch_url` | Fetch any `http(s)` URL through the proxy — with the current TLS preset, User-Agent, client IP, upstream and host filter — and return `status`, `http_version`, `final_url`, `redirects`, `headers`, `body` (text only; `Set-Cookie` values are omitted), `body_truncated`, `elapsed_ms`. Options: `method`, `headers`, `body`, `follow_redirects` (max 10), `max_body_bytes` (default 51200, max 1048576). GET and HEAD carry the preset browser's page-load headers (`Accept`, `Accept-Encoding`, `Sec-Fetch-*`, …) unless you pass your own; compressed bodies (gzip, deflate, br, zstd) are decoded. Failures are reported in the `error` field |
 
 ### Options
 

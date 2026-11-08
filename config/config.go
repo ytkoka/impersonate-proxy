@@ -145,6 +145,15 @@ type HTTP2Config struct {
 	// HeadersPriority is the priority carried in each request's HEADERS frame.
 	// nil sends none.
 	HeadersPriority *H2Priority `yaml:"headers_priority"`
+
+	// FirstStreamID is the ID of the first request stream (odd; 0 means 1).
+	// Firefox starts at 15, the other browsers at 1.
+	FirstStreamID uint32 `yaml:"first_stream_id"`
+
+	// HeaderOrder is the order of regular request headers over HTTP/2 (names,
+	// any case). Empty follows the preset's browser; http.header_order applies
+	// to HTTP/1.1 only.
+	HeaderOrder []string `yaml:"header_order"`
 }
 
 // H2Priority is HTTP/2 stream priority information.

@@ -348,7 +348,7 @@ func relayRaw(client net.Conn, clientR io.Reader, server net.Conn) {
 // except WebSocket upgrades, which go over a separate HTTP/1.1 connection from
 // dialH1 (nil disables that, leaving upgrades to h2 where they are dropped).
 func (s *Server) tunnelH2(clientTLS *tls.Conn, serverConn *fp.Conn, host string, deps connDeps, dialH1 h1Dialer) {
-	h2conn, err := h2fp.Dial(serverConn, deps.h2cfg, deps.rewriter.Order())
+	h2conn, err := h2fp.Dial(serverConn, deps.h2cfg)
 	if err != nil {
 		log.Printf("h2 dial(%s): %v", host, err)
 		return

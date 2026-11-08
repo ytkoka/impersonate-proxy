@@ -2,7 +2,11 @@ module impersonate-mcp
 
 go 1.25.0
 
-require impersonate-proxy v0.0.0
+require (
+	github.com/andybalholm/brotli v1.2.2
+	github.com/klauspost/compress v1.19.2
+	impersonate-proxy v0.0.0
+)
 
 require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
