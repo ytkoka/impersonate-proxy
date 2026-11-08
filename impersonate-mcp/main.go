@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,12 +47,12 @@ func main() {
 	log.SetOutput(os.Stderr)
 
 	var o options
-	readOnlyDefault, _ := strconv.ParseBool(os.Getenv("IMPERSONATE_READ_ONLY"))
+	readOnlyDefault, _ := strconv.ParseBool(getenv("IMPERSONATE_READ_ONLY"))
 	flag.StringVar(&o.MgmtURL, "mgmt-url", envOr("IMPERSONATE_MGMT_URL", defaultMgmtURL),
 		"management API base URL (env IMPERSONATE_MGMT_URL)")
-	flag.StringVar(&o.ProxyURL, "proxy-url", os.Getenv("IMPERSONATE_PROXY_URL"),
+	flag.StringVar(&o.ProxyURL, "proxy-url", getenv("IMPERSONATE_PROXY_URL"),
 		"proxy URL for verify_fingerprint and fetch_url; default: derived from the proxy's `listen` (env IMPERSONATE_PROXY_URL)")
-	flag.StringVar(&o.CACert, "ca-cert", os.Getenv("IMPERSONATE_CA_CERT"),
+	flag.StringVar(&o.CACert, "ca-cert", getenv("IMPERSONATE_CA_CERT"),
 		"path to the proxy's ca.crt for verify_fingerprint and fetch_url; default: system trust store (env IMPERSONATE_CA_CERT)")
 	flag.StringVar(&o.VerifyURL, "verify-url", envOr("IMPERSONATE_VERIFY_URL", defaultVerifyURL),
 		"fingerprint echo endpoint (env IMPERSONATE_VERIFY_URL)")
@@ -78,10 +79,22 @@ func main() {
 }
 
 func envOr(key, def string) string {
-	if v := os.Getenv(key); v != "" {
+	if v := getenv(key); v != "" {
 		return v
 	}
 	return def
+}
+
+// getenv is os.Getenv that treats an unexpanded "${...}" placeholder as unset.
+// An MCPB host substitutes ${user_config.KEY} into the environment, and the
+// spec does not say what an optional setting the user left blank becomes; this
+// keeps a literal "${user_config.ca_cert}" from being used as a file path.
+func getenv(key string) string {
+	v := os.Getenv(key)
+	if strings.HasPrefix(v, "${") {
+		return ""
+	}
+	return v
 }
 
 // newServer builds the MCP server with its tools registered.

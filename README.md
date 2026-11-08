@@ -742,6 +742,7 @@ impersonate-proxy/
 | `make build` | Compile the binary |
 | `make build-mcp` | Build the optional MCP server to `impersonate-mcp/impersonate-mcp` ([see MCP server](#mcp-server-optional)) |
 | `make test-mcp` | Run the MCP server's tests |
+| `make package-mcpb` | Build per-platform `.mcpb` bundles for the MCP server into `impersonate-mcp/dist/` (needs `jq`, `zip`) |
 | `make run` | Build, kill any existing instance, and start |
 | `make trust-ca` | Add `ca.crt` to the macOS system keychain (requires sudo) |
 | `make clean` | Remove the binary, `ca.crt`, and `ca.key` |

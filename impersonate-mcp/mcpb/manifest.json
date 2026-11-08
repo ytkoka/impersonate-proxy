@@ -1,0 +1,94 @@
+{
+  "manifest_version": "0.3",
+  "name": "impersonate-mcp",
+  "display_name": "Impersonate Proxy",
+  "version": "0.1.0",
+  "description": "Drive a running impersonate-proxy: switch TLS/HTTP2 fingerprints, User-Agent, client IP and upstream, then verify and fetch.",
+  "long_description": "An MCP server that controls a running [impersonate-proxy](https://github.com/ytkoka/impersonate-proxy) through its management API. Switch the TLS (JA3/JA4) and HTTP/2 fingerprint, User-Agent, spoofed client IP and upstream proxy, then verify what a server actually sees and fetch pages through the proxy.\n\n**Requires a running impersonate-proxy** (management API on `http://127.0.0.1:8081` by default). Intended for authorized security testing of WAF and bot-detection systems you own or have explicit permission to test.",
+  "author": {
+    "name": "Yutaka Oka",
+    "url": "https://github.com/ytkoka"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ytkoka/impersonate-proxy"
+  },
+  "homepage": "https://github.com/ytkoka/impersonate-proxy",
+  "documentation": "https://github.com/ytkoka/impersonate-proxy/blob/main/impersonate-mcp/README.md",
+  "support": "https://github.com/ytkoka/impersonate-proxy/issues",
+  "license": "MIT",
+  "icon": "icon.png",
+  "keywords": ["tls", "ja3", "ja4", "http2", "fingerprint", "waf", "security-testing"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/impersonate-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/impersonate-mcp",
+      "args": [],
+      "env": {
+        "IMPERSONATE_MGMT_URL": "${user_config.mgmt_url}",
+        "IMPERSONATE_CA_CERT": "${user_config.ca_cert}",
+        "IMPERSONATE_READ_ONLY": "${user_config.read_only}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "get_config",
+      "description": "Show the active runtime settings, including the HTTP/2 fingerprint and fetch_allow_hosts"
+    },
+    {
+      "name": "set_tls_preset",
+      "description": "Switch the TLS preset (chrome, firefox, safari, edge, ios, random, golang); the HTTP/2 fingerprint follows"
+    },
+    {
+      "name": "set_custom_hello",
+      "description": "Set an arbitrary ClientHello and switch to the custom preset"
+    },
+    {
+      "name": "set_user_agent",
+      "description": "Set the User-Agent (\"auto\" derives it from the TLS preset)"
+    },
+    {
+      "name": "set_client_ip",
+      "description": "Set the spoofed client IP (X-Forwarded-For / True-Client-IP)"
+    },
+    {
+      "name": "set_upstream",
+      "description": "Enable or disable the upstream proxy and select one by name"
+    },
+    {
+      "name": "verify_fingerprint",
+      "description": "Fetch tls.peet.ws through the proxy and summarise JA3/JA4, the HTTP/2 fingerprint, User-Agent and IP"
+    },
+    {
+      "name": "fetch_url",
+      "description": "Fetch an http(s) URL through the proxy with the current fingerprint; loopback and private targets are refused"
+    }
+  ],
+  "user_config": {
+    "mgmt_url": {
+      "type": "string",
+      "title": "Management API URL",
+      "description": "Base URL of the running impersonate-proxy's management API. It has no authentication, so keep it on loopback.",
+      "required": false,
+      "default": "http://127.0.0.1:8081"
+    },
+    "ca_cert": {
+      "type": "file",
+      "title": "Proxy CA certificate",
+      "description": "Path to the proxy's ca.crt. Needed so verify_fingerprint and fetch_url trust the proxy's MITM certificate.",
+      "required": false
+    },
+    "read_only": {
+      "type": "boolean",
+      "title": "Read-only",
+      "description": "Hide every tool that changes proxy settings; fetch_url is limited to GET, HEAD and OPTIONS.",
+      "required": false,
+      "default": false
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "linux", "win32"]
+  }
+}

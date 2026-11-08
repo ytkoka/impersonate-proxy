@@ -5,3 +5,4 @@ ca.key
 /data/
 .claude/
 /impersonate-mcp/impersonate-mcp
+/impersonate-mcp/dist/

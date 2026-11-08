@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ytkoka/impersonate-mcp",
+  "description": "Switch impersonate-proxy's TLS/HTTP2 fingerprint, UA, client IP and upstream; verify and fetch.",
+  "repository": {
+    "url": "https://github.com/ytkoka/impersonate-proxy",
+    "source": "github",
+    "subfolder": "impersonate-mcp"
+  },
+  "version": "__VERSION__",
+  "packages": []
+}

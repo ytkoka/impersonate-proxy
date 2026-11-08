@@ -1,6 +1,6 @@
 GO := $(shell which go 2>/dev/null || echo /usr/local/go/bin/go)
 
-.PHONY: build build-mcp test-mcp run clean trust-ca docker-build docker-run docker-stop
+.PHONY: build build-mcp test-mcp package-mcpb run clean trust-ca docker-build docker-run docker-stop
 
 build:
 	$(GO) build -o impersonate-proxy .
@@ -14,12 +14,17 @@ build-mcp:
 test-mcp:
 	cd impersonate-mcp && $(GO) test ./...
 
+# Per-platform .mcpb bundles + SHA256SUMS.txt in impersonate-mcp/dist/ (needs jq, zip).
+package-mcpb:
+	impersonate-mcp/scripts/package-mcpb.sh
+
 run: build
 	@lsof -ti:8080 | xargs kill -9 2>/dev/null || true
 	./impersonate-proxy -config config.yaml
 
 clean:
 	rm -f impersonate-proxy impersonate-mcp/impersonate-mcp ca.crt ca.key
+	rm -rf impersonate-mcp/dist
 
 # macOS: add CA to system keychain (requires sudo)
 trust-ca:
