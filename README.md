@@ -247,21 +247,30 @@ http:
 http2:
   enabled: true
 
+  # The HTTP/2 fingerprint follows tls.preset (see "Browser fingerprint reference"
+  # below), so switching the preset switches it too. The fields below are optional
+  # overrides: set one only to pin it for EVERY preset.
+  #
   # SETTINGS frame entries — id and order both affect the HTTP/2 fingerprint.
   # RFC 7540 §11.3 IDs:
   #   1=HEADER_TABLE_SIZE  2=ENABLE_PUSH  3=MAX_CONCURRENT_STREAMS
   #   4=INITIAL_WINDOW_SIZE  5=MAX_FRAME_SIZE  6=MAX_HEADER_LIST_SIZE
-  settings:
-    - { id: 1, val: 65536 }    # Chrome defaults shown here
-    - { id: 2, val: 0 }
-    - { id: 4, val: 6291456 }
-    - { id: 6, val: 262144 }
+  # settings:
+  #   - { id: 1, val: 65536 }    # Chrome's values shown here
+  #   - { id: 2, val: 0 }
+  #   - { id: 4, val: 6291456 }
+  #   - { id: 6, val: 262144 }
 
   # Connection-level WINDOW_UPDATE increment
-  window_update: 15663105
+  # window_update: 15663105
 
   # Order of pseudo-headers in the HEADERS frame
-  pseudo_header_order: [method, authority, scheme, path]
+  # pseudo_header_order: [method, authority, scheme, path]
+
+  # PRIORITY frames sent after the preface, and the priority carried in HEADERS
+  # (weight 1-256, as tls.peet.ws shows it)
+  # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
+  # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
@@ -352,11 +361,20 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
 
 ### Browser fingerprint reference
 
-| Browser | TLS preset | HTTP/2 SETTINGS | WINDOW_UPDATE |
-|---------|-----------|-----------------|---------------|
-| Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
-| Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
-| Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+The HTTP/2 fingerprint is chosen by the TLS preset. It is the `akamai_fingerprint` string tls.peet.ws reports: `SETTINGS | WINDOW_UPDATE | PRIORITY frames | pseudo-header order` (`m`=`:method`, `a`=`:authority`, `s`=`:scheme`, `p`=`:path`).
+
+| Browser | TLS preset | HTTP/2 fingerprint | Source |
+|---------|-----------|--------------------|--------|
+| Chrome 156 | `chrome` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | measured |
+| Edge (Chromium) | `edge` | same as Chrome | same network stack |
+| Firefox 133–148 | `firefox` | `1:65536;2:0;4:131072;5:16384\|12517377\|0\|m,p,a,s` | published |
+| Safari 17 (macOS) | `safari` | `2:0;4:4194304;3:100\|10485760\|0\|m,s,p,a` | published |
+| Safari 17 (iOS) | `ios` | `2:0;4:2097152;3:100\|10485760\|0\|m,s,p,a` | published |
+| — | `custom`, `random`, `golang` | Chrome's | no single browser behind them |
+
+"Measured" means observed from the real browser through tls.peet.ws; "published" means taken from [tls-client](https://github.com/bogdanfinn/tls-client) and [curl-impersonate](https://github.com/lexiforest/curl-impersonate), which record real browser traffic. The per-profile sources are in `h2fp/profiles.go`. The Safari/iOS profiles are Safari 17 to match the User-Agents the proxy sends for `user_agent: "auto"`; Safari 18.4 and later send `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`. `get_config` (and `GET /api/config`) reports the fingerprint in effect as `http2_fingerprint`.
+
+Fields set under `http2:` in `config.yaml` override the preset's value for every preset. If your `config.yaml` was copied from an older version and still lists `settings`, `window_update` and `pseudo_header_order`, those pin Chrome's values: delete them to follow the preset.
 
 ### User-Agent auto mode (`user_agent: "auto"`)
 
@@ -649,8 +667,8 @@ Or in any client's JSON config:
 
 | Tool | Description |
 |---|---|
-| `get_config` | Return the active runtime settings (TLS preset, `custom_hello`, User-Agent, client IP, upstream state, host filter) |
-| `set_tls_preset` | Switch the TLS preset (`chrome`, `firefox`, `safari`, …) |
+| `get_config` | Return the active runtime settings (TLS preset, `custom_hello`, User-Agent, client IP, upstream state, host filter, `http2_fingerprint`, `fetch_allow_hosts`) |
+| `set_tls_preset` | Switch the TLS preset (`chrome`, `firefox`, `safari`, …). The HTTP/2 fingerprint switches with it |
 | `set_custom_hello` | Set an arbitrary ClientHello (cipher suites, curves, versions, extensions) and switch the preset to `custom` |
 | `set_user_agent` | Set the User-Agent (`""` = leave as is, `"auto"` = derive from the preset) |
 | `set_client_ip` | Set the spoofed client IP (`""` = off) |
@@ -673,7 +691,7 @@ Or in any client's JSON config:
 - The management API has no authentication, and this server lets an agent change the proxy's settings. Keep `mgmt_listen` on loopback (a warning is logged otherwise), and use `--read-only` when the agent should only observe.
 - `verify_fingerprint` sends one request to an external service (`tls.peet.ws` by default). If the [host filter](#host-filter) excludes that host the result is not impersonated, and the tool says so in `warnings`.
 - `set_upstream` can only toggle and select proxies that are already in `config.yaml`; adding proxies at runtime is not supported by the management API.
-- The HTTP/2 fingerprint (`akamai_fingerprint`) is set by `http2` in `config.yaml`, not by the TLS preset, so switching the preset does not change it.
+- The HTTP/2 fingerprint (`akamai_fingerprint`) follows the TLS preset, and `get_config` shows it as `http2_fingerprint`. Values pinned under `http2:` in `config.yaml` override the preset for every preset.
 - `fetch_url` always goes through the proxy, so every current setting applies; it never connects to targets directly. It refuses loopback, private and link-local destinations (`127.0.0.0/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `::1`, plus `fc00::/7`, `fe80::/10`, `100.64/10` and `0.0.0.0/8`), checking both the host and every address it resolves to, and re-checks each redirect hop. `fetch_allow_hosts` (proxy `config.yaml` or `-fetch-allow-hosts`) can further limit it to listed hosts and their subdomains; `get_config` shows the list, and no tool can change it. If the proxy's configuration cannot be read, `fetch_url` refuses rather than fetching unrestricted. Limit: the name is resolved once by the MCP server and again by the proxy, so a DNS-rebinding server that answers differently the second time is not stopped by this check alone.
 - Logs go to stderr; stdout is reserved for the MCP protocol.
 

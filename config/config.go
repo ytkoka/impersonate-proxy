@@ -52,6 +52,12 @@ type ActiveConfig struct {
 
 	// FetchAllowHosts is informational: it is not part of ConfigPatch.
 	FetchAllowHosts []string `json:"fetch_allow_hosts"`
+
+	// HTTP2Fingerprint is the HTTP/2 fingerprint now in effect, in the
+	// SETTINGS|WINDOW_UPDATE|PRIORITY|pseudo-headers form tls.peet.ws reports as
+	// akamai_fingerprint. It follows the TLS preset unless config.yaml pins
+	// http2 values. Read-only.
+	HTTP2Fingerprint string `json:"http2_fingerprint"`
 }
 
 // ConfigPatch is a partial update to the runtime-mutable settings, as decoded
@@ -122,11 +128,31 @@ type HTTPConfig struct {
 	RemoveHeaders []string          `yaml:"remove_headers"`
 }
 
+// HTTP2Config describes the HTTP/2 connection fingerprint. Every field except
+// Enabled is an optional override: left empty, it follows the TLS preset (see
+// package h2fp), so switching the preset also switches the HTTP/2 fingerprint.
+// Set a field to pin it for every preset.
 type HTTP2Config struct {
 	Enabled           bool        `yaml:"enabled"`
 	Settings          []H2Setting `yaml:"settings"`
 	WindowUpdate      uint32      `yaml:"window_update"`
 	PseudoHeaderOrder []string    `yaml:"pseudo_header_order"`
+
+	// Priorities are standalone PRIORITY frames sent right after the connection
+	// preface (Firefox did this up to about version 123; current browsers don't).
+	Priorities []H2Priority `yaml:"priorities"`
+
+	// HeadersPriority is the priority carried in each request's HEADERS frame.
+	// nil sends none.
+	HeadersPriority *H2Priority `yaml:"headers_priority"`
+}
+
+// H2Priority is HTTP/2 stream priority information.
+type H2Priority struct {
+	StreamID  uint32 `yaml:"stream_id"`  // PRIORITY frames only; ignored for headers_priority
+	DependsOn uint32 `yaml:"depends_on"` // stream this one depends on (0 = root)
+	Weight    uint16 `yaml:"weight"`     // 1-256, as reported by tls.peet.ws (the wire value is weight-1)
+	Exclusive bool   `yaml:"exclusive"`
 }
 
 // H2Setting is one entry in the HTTP/2 SETTINGS frame.
@@ -162,17 +188,8 @@ func defaults() *Config {
 			DialTimeoutMS:               15000,
 			SuppressIPHeadersWhenActive: true,
 		},
-		HTTP2: HTTP2Config{
-			Enabled: true,
-			// Chrome-like SETTINGS (order matters for fingerprint)
-			Settings: []H2Setting{
-				{ID: 1, Val: 65536},   // HEADER_TABLE_SIZE
-				{ID: 2, Val: 0},       // ENABLE_PUSH
-				{ID: 4, Val: 6291456}, // INITIAL_WINDOW_SIZE
-				{ID: 6, Val: 262144},  // MAX_HEADER_LIST_SIZE
-			},
-			WindowUpdate:      15663105,
-			PseudoHeaderOrder: []string{"method", "authority", "scheme", "path"},
-		},
+		// SETTINGS, WINDOW_UPDATE and pseudo-header order come from the TLS
+		// preset's profile in package h2fp unless config.yaml overrides them.
+		HTTP2: HTTP2Config{Enabled: true},
 	}
 }

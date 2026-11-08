@@ -68,7 +68,7 @@ func (s *Server) snap() connDeps {
 		dialer:   s.dialer,
 		rewriter: s.rewriter,
 		filter:   s.filter,
-		h2cfg:    s.cfg.HTTP2,
+		h2cfg:    h2fp.Resolve(s.cfg.TLS.Preset, s.cfg.HTTP2),
 		preset:   s.cfg.TLS.Preset,
 	}
 }
@@ -81,6 +81,7 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 	listen := s.cfg.Listen
 	flt := s.cfg.Filter
 	fetchAllow := s.cfg.FetchAllowHosts
+	h2 := h2fp.Resolve(s.cfg.TLS.Preset, s.cfg.HTTP2)
 	s.mu.RUnlock()
 
 	return config.ActiveConfig{
@@ -99,6 +100,8 @@ func (s *Server) GetActiveConfig() config.ActiveConfig {
 		FilterHosts: slices.Clone(flt.Hosts),
 
 		FetchAllowHosts: slices.Clone(fetchAllow),
+
+		HTTP2Fingerprint: h2fp.Fingerprint(h2),
 	}
 }
 

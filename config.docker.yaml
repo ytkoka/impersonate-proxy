@@ -94,28 +94,30 @@ http:
 http2:
   enabled: true
 
-  # SETTINGS frame entries (order matters for the HTTP/2 fingerprint)
-  # id: 1=HEADER_TABLE_SIZE 2=ENABLE_PUSH 3=MAX_CONCURRENT_STREAMS
-  #     4=INITIAL_WINDOW_SIZE 5=MAX_FRAME_SIZE 6=MAX_HEADER_LIST_SIZE
+  # The HTTP/2 fingerprint (SETTINGS, WINDOW_UPDATE, pseudo-header order) follows
+  # tls.preset: chrome/edge, firefox, safari and ios each send their own browser's
+  # values; custom, random and golang use Chrome's. verify_fingerprint / get_config
+  # show the result. Uncomment a field below only to pin it for EVERY preset.
   #
-  # Chrome: 1:65536,2:0,4:6291456,6:262144
-  # Firefox: 1:65536,4:131072,5:16384
-  # Safari:  1:4096,3:100,4:2097152,6:16384
-  settings:
-    - { id: 1, val: 65536 }
-    - { id: 2, val: 0 }
-    - { id: 4, val: 6291456 }
-    - { id: 6, val: 262144 }
-
-  # Connection-level WINDOW_UPDATE increment (Chrome=15663105, Firefox=12517377)
-  window_update: 15663105
-
-  # Pseudo-header order in HEADERS frame (method/authority/scheme/path)
-  pseudo_header_order:
-    - method
-    - authority
-    - scheme
-    - path
+  # SETTINGS entries (order matters). id: 1=HEADER_TABLE_SIZE 2=ENABLE_PUSH
+  # 3=MAX_CONCURRENT_STREAMS 4=INITIAL_WINDOW_SIZE 5=MAX_FRAME_SIZE 6=MAX_HEADER_LIST_SIZE
+  # settings:
+  #   - { id: 1, val: 65536 }
+  #   - { id: 2, val: 0 }
+  #   - { id: 4, val: 6291456 }
+  #   - { id: 6, val: 262144 }
+  #
+  # Connection-level WINDOW_UPDATE increment
+  # window_update: 15663105
+  #
+  # Pseudo-header order in the HEADERS frame (method/authority/scheme/path)
+  # pseudo_header_order: [method, authority, scheme, path]
+  #
+  # PRIORITY frames sent after the preface, and the priority carried in HEADERS
+  # (weight 1-256, as tls.peet.ws shows it)
+  # priorities:
+  #   - { stream_id: 3, depends_on: 0, weight: 201, exclusive: false }
+  # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
 # Hosts the MCP server's fetch_url tool may reach (each entry allows that host
 # and its subdomains; empty = any public host). Loopback / private / link-local

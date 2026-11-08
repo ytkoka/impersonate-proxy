@@ -10,8 +10,8 @@ Intended for **authorized security testing** of WAF and bot-detection systems yo
 
 | Tool | What it does |
 | --- | --- |
-| `get_config` | Show the active runtime settings |
-| `set_tls_preset` | Switch the TLS preset (`chrome`, `firefox`, `safari`, `edge`, `ios`, `random`, `golang`) |
+| `get_config` | Show the active runtime settings, including the HTTP/2 fingerprint in effect (`http2_fingerprint`) and `fetch_allow_hosts` |
+| `set_tls_preset` | Switch the TLS preset (`chrome`, `firefox`, `safari`, `edge`, `ios`, `random`, `golang`). The HTTP/2 fingerprint (SETTINGS, WINDOW_UPDATE, pseudo-header order) switches with it |
 | `set_custom_hello` | Set an arbitrary ClientHello (cipher suites, curves, versions, extensions) and switch to the `custom` preset |
 | `set_user_agent` | Set the User-Agent (`"auto"` derives it from the TLS preset) |
 | `set_client_ip` | Set the spoofed client IP (`X-Forwarded-For` / `True-Client-IP`) |

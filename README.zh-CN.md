@@ -247,21 +247,29 @@ http:
 http2:
   enabled: true
 
-  # SETTINGS 帧条目 — id 和顺序都会影响 HTTP/2 指纹。
+  # HTTP/2 指纹跟随 tls.preset(见下方"浏览器指纹对照表"),切换预设时它也会随之切换。
+  # 以下字段是可选的覆盖项:设置后会对所有预设固定该值。
+  #
+  # SETTINGS 帧条目 — id 和顺序都会影响 HTTP/2 指纹
   # RFC 7540 §11.3 的 ID:
   #   1=HEADER_TABLE_SIZE  2=ENABLE_PUSH  3=MAX_CONCURRENT_STREAMS
   #   4=INITIAL_WINDOW_SIZE  5=MAX_FRAME_SIZE  6=MAX_HEADER_LIST_SIZE
-  settings:
-    - { id: 1, val: 65536 }    # 此处展示的是 Chrome 的默认值
-    - { id: 2, val: 0 }
-    - { id: 4, val: 6291456 }
-    - { id: 6, val: 262144 }
+  # settings:
+  #   - { id: 1, val: 65536 }    # 此处以 Chrome 的值为例
+  #   - { id: 2, val: 0 }
+  #   - { id: 4, val: 6291456 }
+  #   - { id: 6, val: 262144 }
 
-  # 连接级别的 WINDOW_UPDATE 增量
-  window_update: 15663105
+  # 连接级 WINDOW_UPDATE 增量
+  # window_update: 15663105
 
   # HEADERS 帧中伪首部的顺序
-  pseudo_header_order: [method, authority, scheme, path]
+  # pseudo_header_order: [method, authority, scheme, path]
+
+  # 连接前言之后发送的 PRIORITY 帧,以及 HEADERS 帧中携带的优先级
+  # (weight 为 1-256,与 tls.peet.ws 显示一致)
+  # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
+  # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
@@ -350,11 +358,20 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
 
 ### 浏览器指纹对照表
 
-| 浏览器 | TLS 预设 | HTTP/2 SETTINGS | WINDOW_UPDATE |
-|---------|-----------|-----------------|---------------|
-| Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
-| Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
-| Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+HTTP/2 指纹由 TLS 预设决定。它就是 tls.peet.ws 返回的 `akamai_fingerprint` 字符串:`SETTINGS | WINDOW_UPDATE | PRIORITY 帧 | 伪首部顺序`(`m`=`:method`、`a`=`:authority`、`s`=`:scheme`、`p`=`:path`)。
+
+| 浏览器 | TLS 预设 | HTTP/2 指纹 | 来源 |
+|---------|-----------|--------------------|------|
+| Chrome 156 | `chrome` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | 实测 |
+| Edge(Chromium) | `edge` | 与 Chrome 相同 | 同一网络栈 |
+| Firefox 133–148 | `firefox` | `1:65536;2:0;4:131072;5:16384\|12517377\|0\|m,p,a,s` | 公开资料 |
+| Safari 17(macOS) | `safari` | `2:0;4:4194304;3:100\|10485760\|0\|m,s,p,a` | 公开资料 |
+| Safari 17(iOS) | `ios` | `2:0;4:2097152;3:100\|10485760\|0\|m,s,p,a` | 公开资料 |
+| — | `custom`、`random`、`golang` | 与 Chrome 相同 | 没有对应的单一浏览器 |
+
+"实测"指通过 tls.peet.ws 观察真实浏览器得到的值;"公开资料"指取自记录真实浏览器流量的 [tls-client](https://github.com/bogdanfinn/tls-client) 和 [curl-impersonate](https://github.com/lexiforest/curl-impersonate)。各配置的出处见 `h2fp/profiles.go`。Safari/iOS 采用 Safari 17,以与 `user_agent: "auto"` 发送的 User-Agent 保持一致;Safari 18.4 及更新版本发送 `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p`。当前生效的指纹可通过 `get_config`(以及 `GET /api/config`)的 `http2_fingerprint` 查看。
+
+`config.yaml` 的 `http2:` 下设置的字段会对所有预设覆盖预设的值。如果你的 `config.yaml` 是从旧版本复制来的,仍然列出了 `settings`、`window_update` 和 `pseudo_header_order`,它们会固定为 Chrome 的值:想让它跟随预设,请删除这些字段。
 
 ### User-Agent 自动模式(`user_agent: "auto"`)
 
@@ -645,8 +662,8 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 
 | 工具 | 说明 |
 |---|---|
-| `get_config` | 返回当前运行时设置(TLS 预设、`custom_hello`、User-Agent、客户端 IP、上游状态、主机过滤) |
-| `set_tls_preset` | 切换 TLS 预设(`chrome`、`firefox`、`safari` 等) |
+| `get_config` | 返回当前运行时设置(TLS 预设、`custom_hello`、User-Agent、客户端 IP、上游状态、主机过滤、`http2_fingerprint`、`fetch_allow_hosts`) |
+| `set_tls_preset` | 切换 TLS 预设(`chrome`、`firefox`、`safari` 等)。HTTP/2 指纹随之切换 |
 | `set_custom_hello` | 设置任意 ClientHello(密码套件、曲线、版本、扩展),并将预设切换为 `custom` |
 | `set_user_agent` | 设置 User-Agent(`""` = 保持原样,`"auto"` = 根据预设自动生成) |
 | `set_client_ip` | 设置伪造的客户端 IP(`""` = 关闭) |
@@ -669,7 +686,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 - 管理 API 没有认证,而此服务器允许智能体修改代理设置。请让 `mgmt_listen` 保持在回环地址(否则会输出警告日志);若只希望智能体观察,请使用 `--read-only`。
 - `verify_fingerprint` 会向外部服务(默认 `tls.peet.ws`)发送一次请求。如果[主机过滤](#主机过滤)排除了该主机,结果将不是伪装后的指纹,工具会在 `warnings` 中提示。
 - `set_upstream` 只能切换和选择 `config.yaml` 中已定义的代理;管理 API 不支持在运行时添加代理。
-- HTTP/2 指纹(`akamai_fingerprint`)由 `config.yaml` 中的 `http2` 决定,而不是 TLS 预设,因此切换预设不会改变它。
+- HTTP/2 指纹(`akamai_fingerprint`)跟随 TLS 预设,可通过 `get_config` 的 `http2_fingerprint` 查看。在 `config.yaml` 的 `http2:` 下固定的值会对所有预设覆盖预设的值。
 - `fetch_url` 始终经过代理,因此所有当前设置都会生效;它从不直接连接目标。它会拒绝回环、私有和链路本地地址(`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`,以及 `fc00::/7`、`fe80::/10`、`100.64/10`、`0.0.0.0/8`),同时检查主机名和解析出的每个 IP,并在每次重定向跳转时重新检查。`fetch_allow_hosts`(代理的 `config.yaml` 或 `-fetch-allow-hosts`)可进一步限制为所列主机及其子域名;`get_config` 会显示该列表,但任何工具都无法修改。如果读取不到代理配置,`fetch_url` 会拒绝而不是不受限地获取。局限:域名由 MCP 服务器和代理分别解析,第二次解析返回不同结果的 DNS 重绑定,仅靠此检查无法阻止。
 - 日志输出到 stderr;stdout 专用于 MCP 协议。
 

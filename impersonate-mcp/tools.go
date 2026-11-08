@@ -41,8 +41,9 @@ func registerTools(srv *mcp.Server, mgmt *mgmtClient, v *verifier, f *fetcher, r
 	}
 
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "get_config",
-		Description: "Return the proxy's active runtime settings: TLS preset, custom_hello, User-Agent, client IP, upstream state (proxy names only) and host filter.",
+		Name: "get_config",
+		Description: "Return the proxy's active runtime settings: TLS preset, custom_hello, User-Agent, client IP, upstream state (proxy names only), host filter, " +
+			"http2_fingerprint (the HTTP/2 fingerprint now in effect) and fetch_allow_hosts.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: ptr(false)},
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ noArgs) (*mcp.CallToolResult, config.ActiveConfig, error) {
 		cfg, err := mgmt.GetConfig(ctx)
@@ -74,7 +75,7 @@ func registerTools(srv *mcp.Server, mgmt *mgmtClient, v *verifier, f *fetcher, r
 	}
 
 	mcp.AddTool(srv, patchTool("set_tls_preset",
-		"Switch the TLS (JA3/JA4) fingerprint to a named browser preset. Other settings are left unchanged."),
+		"Switch the TLS (JA3/JA4) fingerprint to a named browser preset. The HTTP/2 fingerprint (SETTINGS, WINDOW_UPDATE, pseudo-header order) switches with it. Other settings are left unchanged."),
 		func(ctx context.Context, _ *mcp.CallToolRequest, a setTLSPresetArgs) (*mcp.CallToolResult, config.ActiveConfig, error) {
 			if a.Preset == "" {
 				return nil, config.ActiveConfig{}, errors.New("preset must not be empty")

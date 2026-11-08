@@ -318,7 +318,7 @@
       <div class="card">
         <div class="icon">⇄</div>
         <h3>HTTP/2 fingerprint</h3>
-        <p>Hand-built framer controls SETTINGS values &amp; order, WINDOW_UPDATE, and pseudo-header order — not left to Go's default transport.</p>
+        <p>Hand-built framer controls SETTINGS values &amp; order, WINDOW_UPDATE, PRIORITY and pseudo-header order — and each TLS preset brings its own browser's HTTP/2 fingerprint.</p>
       </div>
       <div class="card">
         <div class="icon">≡</div>
@@ -412,12 +412,9 @@ http:
 
 http2:
   enabled: true
-  settings:
-    - { id: 1, val: 65536 }    <span class="c"># Chrome defaults shown here</span>
-    - { id: 2, val: 0 }
-    - { id: 4, val: 6291456 }
-    - { id: 6, val: 262144 }
-  window_update: 15663105</pre>
+  <span class="c"># SETTINGS, WINDOW_UPDATE and pseudo-header order follow tls.preset:</span>
+  <span class="c"># chrome/edge, firefox, safari and ios each send their own browser's values.</span>
+  <span class="c"># Set settings / window_update / pseudo_header_order only to pin them for every preset.</span></pre>
   </section>
 
   <section id="extension" class="wrap">

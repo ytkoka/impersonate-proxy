@@ -1,5 +1,6 @@
 // Package h2fp provides an HTTP/2 client connection whose SETTINGS frame,
-// WINDOW_UPDATE increment, and pseudo-header order can be freely configured.
+// WINDOW_UPDATE increment, PRIORITY data and pseudo-header order can be freely
+// configured, plus the per-browser profiles that fill those in for each TLS preset.
 // This allows impersonating the HTTP/2 fingerprint of
 // specific browsers for WAF bot-detection testing.
 package h2fp
@@ -89,7 +90,25 @@ func (c *Conn) sendPreface() error {
 			return err
 		}
 	}
+	for _, p := range c.cfg.Priorities {
+		if err := c.fr.WritePriority(p.StreamID, priorityParam(p)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// priorityParam converts a config priority (weight 1-256) to its wire form
+// (weight-1, 0-255).
+func priorityParam(p config.H2Priority) http2.PriorityParam {
+	w := p.Weight
+	if w < 1 {
+		w = 1
+	}
+	if w > 256 {
+		w = 256
+	}
+	return http2.PriorityParam{StreamDep: p.DependsOn, Exclusive: p.Exclusive, Weight: uint8(w - 1)}
 }
 
 // recvServerPreface reads frames until it receives the server's SETTINGS,
@@ -197,12 +216,16 @@ func (c *Conn) writeHeaders(req *http.Request, sid uint32) error {
 		}
 	}
 
-	return c.fr.WriteHeaders(http2.HeadersFrameParam{
+	param := http2.HeadersFrameParam{
 		StreamID:      sid,
 		BlockFragment: c.encBuf.Bytes(),
 		EndStream:     !hasBody,
 		EndHeaders:    true,
-	})
+	}
+	if c.cfg.HeadersPriority != nil {
+		param.Priority = priorityParam(*c.cfg.HeadersPriority)
+	}
+	return c.fr.WriteHeaders(param)
 }
 
 // writeBody sends a DATA frame if the request has a body.

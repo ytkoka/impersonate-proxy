@@ -247,21 +247,30 @@ http:
 http2:
   enabled: true
 
-  # SETTINGSフレームのエントリ — idと順序の両方がHTTP/2フィンガープリントに影響する。
+  # HTTP/2フィンガープリントは tls.preset に連動します(下の「ブラウザ別フィンガープリント早見表」参照)。
+  # プリセットを切り替えるとHTTP/2も切り替わります。以下の項目は任意の上書きで、
+  # 設定すると全プリセットで固定されます。
+  #
+  # SETTINGSフレームのエントリ — idと順序の両方がHTTP/2フィンガープリントに影響する
   # RFC 7540 §11.3 のID:
   #   1=HEADER_TABLE_SIZE  2=ENABLE_PUSH  3=MAX_CONCURRENT_STREAMS
   #   4=INITIAL_WINDOW_SIZE  5=MAX_FRAME_SIZE  6=MAX_HEADER_LIST_SIZE
-  settings:
-    - { id: 1, val: 65536 }    # ここではChromeのデフォルト値を例示
-    - { id: 2, val: 0 }
-    - { id: 4, val: 6291456 }
-    - { id: 6, val: 262144 }
+  # settings:
+  #   - { id: 1, val: 65536 }    # ここではChromeの値を例示
+  #   - { id: 2, val: 0 }
+  #   - { id: 4, val: 6291456 }
+  #   - { id: 6, val: 262144 }
 
   # コネクションレベルのWINDOW_UPDATE増分
-  window_update: 15663105
+  # window_update: 15663105
 
   # HEADERSフレーム内の疑似ヘッダーの順序
-  pseudo_header_order: [method, authority, scheme, path]
+  # pseudo_header_order: [method, authority, scheme, path]
+
+  # 接続開始直後に送るPRIORITYフレームと、HEADERSフレームに含める優先度
+  # (weight は 1〜256。tls.peet.ws の表示と同じ)
+  # priorities: [{ stream_id: 3, depends_on: 0, weight: 201 }]
+  # headers_priority: { depends_on: 0, weight: 256, exclusive: true }
 
 # Impersonate only some target hosts (default: all). Hosts that are not
 # impersonated are tunnelled through untouched. Patterns: "example.com" (exact)
@@ -352,11 +361,20 @@ curl -s -X POST http://127.0.0.1:8081/api/config \
 
 ### ブラウザ別フィンガープリント早見表
 
-| ブラウザ | TLSプリセット | HTTP/2 SETTINGS | WINDOW_UPDATE |
-|---------|-----------|-----------------|---------------|
-| Chrome  | `chrome`  | `1:65536,2:0,4:6291456,6:262144` | 15663105 |
-| Firefox | `firefox` | `1:65536,4:131072,5:16384`       | 12517377 |
-| Safari  | `safari`  | `1:4096,3:100,4:2097152,6:16384` | 10485760 |
+HTTP/2フィンガープリントはTLSプリセットで決まります。tls.peet.ws が `akamai_fingerprint` として返す `SETTINGS | WINDOW_UPDATE | PRIORITYフレーム | 疑似ヘッダー順` の文字列です(`m`=`:method`、`a`=`:authority`、`s`=`:scheme`、`p`=`:path`)。
+
+| ブラウザ | TLSプリセット | HTTP/2フィンガープリント | 出典 |
+|---------|-----------|--------------------|------|
+| Chrome 156 | `chrome` | `1:65536;2:0;4:6291456;6:262144\|15663105\|0\|m,a,s,p` | 実測 |
+| Edge(Chromium) | `edge` | Chromeと同じ | 同一のネットワークスタック |
+| Firefox 133〜148 | `firefox` | `1:65536;2:0;4:131072;5:16384\|12517377\|0\|m,p,a,s` | 公開情報 |
+| Safari 17(macOS) | `safari` | `2:0;4:4194304;3:100\|10485760\|0\|m,s,p,a` | 公開情報 |
+| Safari 17(iOS) | `ios` | `2:0;4:2097152;3:100\|10485760\|0\|m,s,p,a` | 公開情報 |
+| — | `custom`、`random`、`golang` | Chromeと同じ | 対応する単一のブラウザがないため |
+
+「実測」は実ブラウザを tls.peet.ws 経由で観測した値、「公開情報」は実ブラウザの通信を記録している [tls-client](https://github.com/bogdanfinn/tls-client) と [curl-impersonate](https://github.com/lexiforest/curl-impersonate) から採った値です。各プロファイルの出典は `h2fp/profiles.go` にあります。Safari/iOS は、`user_agent: "auto"` で送るUser-Agentに合わせて Safari 17 です。Safari 18.4 以降は `2:0;3:100;4:2097152;9:1|10420225|0|m,s,a,p` を送ります。有効なフィンガープリントは `get_config`(と `GET /api/config`)の `http2_fingerprint` で確認できます。
+
+`config.yaml` の `http2:` に書いた項目は、すべてのプリセットでプリセットの値を上書きします。古いバージョンからコピーした `config.yaml` に `settings`・`window_update`・`pseudo_header_order` が残っている場合、それらがChromeの値を固定してしまうので、プリセットに連動させたいときは削除してください。
 
 ### User-Agent自動モード(`user_agent: "auto"`)
 
@@ -647,8 +665,8 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 
 | ツール | 説明 |
 |---|---|
-| `get_config` | 現在の実行時設定(TLSプリセット、`custom_hello`、User-Agent、クライアントIP、アップストリーム状態、ホストフィルタ)を返す |
-| `set_tls_preset` | TLSプリセット(`chrome`、`firefox`、`safari` など)を切り替える |
+| `get_config` | 現在の実行時設定(TLSプリセット、`custom_hello`、User-Agent、クライアントIP、アップストリーム状態、ホストフィルタ、`http2_fingerprint`、`fetch_allow_hosts`)を返す |
+| `set_tls_preset` | TLSプリセット(`chrome`、`firefox`、`safari` など)を切り替える。HTTP/2フィンガープリントも連動して切り替わる |
 | `set_custom_hello` | 任意のClientHello(暗号スイート・曲線・バージョン・拡張)を設定し、プリセットを `custom` にする |
 | `set_user_agent` | User-Agentを設定する(`""` = そのまま、`"auto"` = プリセットから自動決定) |
 | `set_client_ip` | 偽装するクライアントIPを設定する(`""` = 無効) |
@@ -671,7 +689,7 @@ claude mcp add impersonate -- /path/to/impersonate-proxy/impersonate-mcp/imperso
 - 管理APIには認証がなく、このサーバーはエージェントにプロキシ設定の変更を許可します。`mgmt_listen` はループバックのままにしてください(そうでない場合は警告ログが出ます)。エージェントに観測だけをさせたい場合は `--read-only` を使ってください。
 - `verify_fingerprint` は外部サービス(デフォルトは `tls.peet.ws`)へ1回リクエストします。[ホストフィルタ](#ホストフィルタ)でそのホストが対象外だと偽装されない結果になり、ツールが `warnings` で知らせます。
 - `set_upstream` で操作できるのは `config.yaml` に定義済みのプロキシの切り替えと選択のみです。実行時にプロキシを追加することは管理APIがサポートしていません。
-- HTTP/2フィンガープリント(`akamai_fingerprint`)は TLS プリセットではなく `config.yaml` の `http2` で決まるため、プリセットを切り替えても変わりません。
+- HTTP/2フィンガープリント(`akamai_fingerprint`)はTLSプリセットに連動し、`get_config` の `http2_fingerprint` で確認できます。`config.yaml` の `http2:` に固定した値は、すべてのプリセットでプリセットの値を上書きします。
 - `fetch_url` は必ずプロキシ経由で、現在の設定がすべて反映されます。ターゲットへ直接接続することはありません。ループバック・プライベート・リンクローカル宛て(`127.0.0.0/8`、`10/8`、`172.16/12`、`192.168/16`、`169.254/16`、`::1`、加えて `fc00::/7`、`fe80::/10`、`100.64/10`、`0.0.0.0/8`)は拒否します。ホスト名と、名前解決後のすべてのIPの両方を判定し、リダイレクトの各ホップでも再判定します。`fetch_allow_hosts`(プロキシの `config.yaml` または `-fetch-allow-hosts`)で、記載ホストとそのサブドメインにさらに限定できます。`get_config` で内容を確認できますが、ツールからは変更できません。プロキシの設定を読み取れない場合、`fetch_url` は無制限に取得せず拒否します。制限: 名前解決はMCPサーバーとプロキシで別々に行われるため、2回目の解決で異なる答えを返すDNSリバインディングは、この判定だけでは防げません。
 - ログは stderr に出力されます。stdout は MCP プロトコル専用です。
 
